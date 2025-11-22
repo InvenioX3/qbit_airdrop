@@ -1,6 +1,5 @@
 <!--
   PROJECT HEADER
-  Replace `docs/images/logo.png` with your project logo or icon.
 -->
 <p align="center">
   <a href="https://github.com/InvenioX3/qbit_airdrop">
@@ -9,10 +8,10 @@
   </a>
 </p>
 
-<h1 align="center">Qbit Airdrop – Home Assistant Integration for qBittorrent</h1>
+<h1 align="center">Qbit Airdrop – Home Assistant Integration for qBittorrent torrent management.</h1>
 
 <p align="center">
-  <em>Paste, parse, and airdrop magnet links to qBittorrent via Home Assistant.</em>
+  <em>Paste, parse, and airdrop magnet links to qBittorrent via Home Assistant custom lovelace card.</em>
 </p>
 
 <p align="center">
@@ -74,7 +73,7 @@
 
 The integration focuses on one job:
 
-> Make it trivial to “airdrop” magnet links into qBittorrent from a Home Assistant dashboard (including Android / Google TV devices), while keeping the backend logic and category/save-path management on the Home Assistant side.
+> Make it trivial to “airdrop” magnet links to qBittorrent from the native HA app on mobile devices, while keeping the backend logic and category/save-path management automated.
 
 The integration exposes:
 
@@ -84,7 +83,7 @@ The integration exposes:
   - Listing active torrents.
   - Deleting torrents (with or without files).
 
-It is designed to be used together with the **Qbit Airdrop Submit Card** Lovelace card, which provides the UI for pasting magnet links and managing active torrents directly from a dashboard.
+It is designed to be used together with the **Qbit Airdrop Card** Lovelace card, which provides the UI for pasting magnet links and managing active torrents directly from a dashboard.
 
 ---
 
