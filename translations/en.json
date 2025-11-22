@@ -1,0 +1,57 @@
+{
+  "config": {
+    "step": {
+      "init": {
+        "title": "Qbit Airdrop",
+        "description": [
+          "### What this integration does",
+          "",
+          "Qbit Airdrop connects Home Assistant to your local qBittorrent WebUI so you can:",
+          "- Send magnet links from dashboards (via the Qbit Airdrop Submit Card).",
+          "- See active torrents with state, progress, download speed and size.",
+          "- Quickly remove torrents, with or without deleting the downloaded files.",
+          "",
+          "### How it behaves (from the UI perspective)",
+          "",
+          "- When you submit a magnet from the card, Qbit Airdrop forwards it to qBittorrent.",
+          "- The card automatically infers a *category* from the magnet's display name (for example, the show name for TV episodes).",
+          "- If you set a Base Path below, Qbit Airdrop will ask qBittorrent to create/use a folder for that category and download into it.",
+          "",
+          "### After installing this integration",
+          "",
+          "1. Install the **Qbit Airdrop Submit Card** from HACS (Frontend → Dashboard plugins).",
+          "2. Add the card to a dashboard:",
+          "   - Type: `custom:qbit-airdrop-submit-card`",
+          "   - Set a title (for example, \"Qbit Airdrop\").",
+          "   - Optionally adjust the maximum number of active torrents to show.",
+          "3. Use the card to paste or auto-detect magnet links and manage active torrents.",
+          "",
+          "You can change these connection settings later from the integration's options."
+        ],
+        "data": {
+          "host": "qBittorrent WebUI host or URL",
+          "port": "WebUI port",
+          "base_path": "Base path for category folders (optional)"
+        }
+      },
+      "options": {
+        "title": "Qbit Airdrop options",
+        "description": [
+          "Update how Qbit Airdrop connects to qBittorrent and where category folders are created.",
+          "",
+          "- **Host**: qBittorrent WebUI host or URL.",
+          "- **Port**: WebUI port.",
+          "- **Base path**: Root directory where category-based folders will be created by qBittorrent when magnets are submitted from the card."
+        ],
+        "data": {
+          "host": "qBittorrent WebUI host or URL",
+          "port": "WebUI port",
+          "base_path": "Base path for category folders (optional)"
+        }
+      }
+    },
+    "error": {
+      "invalid_host_port": "Please enter a valid host and port."
+    }
+  }
+}
