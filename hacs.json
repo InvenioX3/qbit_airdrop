@@ -1,0 +1,7 @@
+{
+  "name": "Qbit Airdrop",
+  "content_in_root": false,
+  "domains": ["qbit_airdrop"],
+  "homeassistant": "2024.12.0",
+  "render_readme": true
+}

@@ -1,0 +1,22 @@
+add_magnet:
+  name: Add qBittorrent magnet
+  description: Submit a magnet link to qBittorrent with an optional category.
+  fields:
+    magnet:
+      name: Magnet URL
+      description: Paste a full magnet:? link.
+      required: true
+      selector:
+        text: {}
+    category:
+      name: Category
+      description: Optional qBittorrent category name.
+      required: false
+      selector:
+        text: {}
+reload_categories:
+  name: Reload categories
+  description: Refresh the select entity options for this integration instance.
+reload_entry:
+  name: Reload integration
+  description: Reload this Qbit Airdrop config entry.
