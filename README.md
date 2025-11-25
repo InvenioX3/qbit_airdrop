@@ -7,10 +7,10 @@
   </a>
 </p>
 
-<h1 align="center">Qbit Airdrop – Home Assistant Integration for torrent management via qBitorrent webUI API calls.</h1>
+<h1 align="center">Qbit Airdrop – Home Assistant Integration for torrent management via qBitorrent API calls.</h1>
 
 <p align="center">
-  <em>Paste, parse, and airdrop magnet links to qBittorrent via Home Assistant custom lovelace card.</em>
+  <em>Auto-parse/submit on pasting magnet links to qBittorrent via Home Assistant custom lovelace card.</em>
 </p>
 
 <p align="center">
