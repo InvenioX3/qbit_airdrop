@@ -7,13 +7,8 @@
   </a>
 </p>
 
-<h1 align="center">Qbit Airdrop – Home Assistant Integration for torrent management.</h1>
+<h1 align="center">Qbit Airdrop - EASY magnet submission and torrent management.</h1>
 
-<p align="center">
-  <em>Auto-parse/submit on pasting magnet links to qBittorrent via Home Assistant custom lovelace card.</em>
-</p>
-
-<p align="center">
   <a href="https://hacs.xyz/">
     <img
       alt="HACS Custom Integration"
@@ -67,19 +62,11 @@
 
 ## Overview
 
-**Qbit Airdrop** is a Home Assistant custom integration that connects your Home Assistant instance to a local **qBittorrent** client via its WebUI API.
+**Qbit Airdrop** - Auto-parse/submit on pasting magnet links to qBittorrent via custom lovelace card in Home Assistant.
 
-The integration focuses on one job:
-
-> Make it trivial to “airdrop” magnet links to qBittorrent from the native HA app on mobile devices, while keeping the backend logic and category/save-path management automated.
-
-The integration exposes:
-
-- A simple **service** for adding magnet links (`qbit_airdrop.add_magnet`).
-- A **reload** helper service (`qbit_airdrop.reload_entry`).
-- Lightweight **HTTP endpoints** for:
-  - Listing active torrents.
-  - Deleting torrents (with or without files).
+  - List of current torrents and their state
+  - Delete torrents (deleting files)
+  - Remove torrents (keeping files)
 
 It is designed to be used together with the **Qbit Airdrop Card** Lovelace card, which provides the UI for pasting magnet links and managing active torrents directly from a dashboard.
 
@@ -88,42 +75,11 @@ It is designed to be used together with the **Qbit Airdrop Card** Lovelace card,
 ## Features
 
 - **Direct qBittorrent WebUI integration**
-  - Talks to qBittorrent’s HTTP API using the configured host and port.
-  - Builds a normalized base URL even if you provide a bare host or a full URL.
-
 - **Magnet submission service**
-  - `qbit_airdrop.add_magnet` accepts a magnet link and an optional category.
-  - If a category and `base_path` are provided, the integration:
-    - Computes a per-category save path.
-    - Ensures the category exists in qBittorrent with that save path.
+  - `qbit_airdrop.add_magnet` accepts a magnet link
+  - - Cleans the string and determines if it is a unique file or episodic.
     - Submits the magnet with both category and save path.
-
-- **Automatic per-category save locations**
-  - When configured with a `base_path`, the integration constructs:
-    ```text
-    <base_path>/<category>/
-    ```
-  - It calls qBittorrent’s `createCategory` API with this path.
-  - qBittorrent automatically creates and uses that folder as the download location.
-
-- **Active torrent listing**
-  - Exposes an HTTP endpoint under Home Assistant that returns:
-    - Name (cleaned display name).
-    - Progress (converted to percentage).
-    - State (e.g., Downloading, Seeding, Paused).
-    - Size, download speed, hash.
-    - Availability (used by the card for coloring).
-
-- **Torrent deletion helpers**
-  - HTTP endpoint for removing torrents by hash:
-    - Optionally deletes files on disk.
-    - Used by the Lovelace card for one-click actions.
-
-- **Designed for dashboards**
-  - Lightweight JSON endpoints and service calls that are easy to consume from Lovelace.
-  - Works particularly well when paired with the **Qbit Airdrop Submit Card**.
-
----
+    - qBittorrent automatically creates and uses that folder as the download location.
 
 ## Requirements
 
@@ -131,8 +87,6 @@ It is designed to be used together with the **Qbit Airdrop Card** Lovelace card,
 - HACS installed and configured.
 - A reachable **qBittorrent** instance with WebUI enabled:
   - Host and port accessible from your Home Assistant instance.
-  - WebUI credentials and access configured so that Home Assistant can call the API.
-- (Optional but recommended) A base path on storage (e.g., a NAS mount) that will hold your categorized downloads.
 
 ---
 
