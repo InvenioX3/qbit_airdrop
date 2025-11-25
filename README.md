@@ -3,7 +3,6 @@
 -->
 <p align="center">
   <a href="https://github.com/InvenioX3/qbit_airdrop">
-    <!-- PROJECT ICON PLACEHOLDER -->
     <img src="images/icon.png" alt="Qbit Airdrop Integration" width="512" />
   </a>
 </p>
@@ -15,7 +14,6 @@
 </p>
 
 <p align="center">
-  <!-- BADGES: COLORS & LINKS -->
   <a href="https://hacs.xyz/">
     <img
       alt="HACS Custom Integration"
