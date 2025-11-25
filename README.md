@@ -92,16 +92,16 @@ It is designed to be used together with the **Qbit Airdrop Card** Lovelace card,
 
 ## Installation
 
-### 1. Install via HACS (recommended)
+### 1. Install via HACS (recommended - notifications of updates only work if installed via HACS UI)
 
 1. Open **HACS → Integrations**.
-2. Add this repository as a **Custom Repository** if it is not yet in the default HACS store:
+2. Add this repository as a **Custom Repository**:
    - Repository: `https://github.com/InvenioX3/qbit_airdrop`
    - Category: `Integration`
 3. Search for **Qbit Airdrop** in HACS and install it.
 4. Restart Home Assistant when prompted.
 
-### 2. Manual installation (advanced)
+### 2. Manual installation
 
 1. Copy the `custom_components/qbit_airdrop` folder from this repository into:
    ```text
