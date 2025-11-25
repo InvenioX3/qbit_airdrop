@@ -3,7 +3,7 @@
 -->
 <p align="center">
   <a href="https://github.com/InvenioX3/qbit_airdrop">
-    <img src="images/icon.png" alt="Qbit Airdrop Integration" width="512" />
+    <img src="images/icon.png" alt="Qbit Airdrop Integration" width="256" />
   </a>
 </p>
 
