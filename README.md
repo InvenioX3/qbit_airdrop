@@ -4,7 +4,7 @@
 <p align="center">
   <a href="https://github.com/InvenioX3/qbit_airdrop">
     <!-- PROJECT ICON PLACEHOLDER -->
-    <img src="images/magnet.png" alt="Qbit Airdrop Integration" width="120" />
+    <img src="images/icon.png" alt="Qbit Airdrop Integration" width="512" />
   </a>
 </p>
 
