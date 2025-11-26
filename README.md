@@ -65,7 +65,7 @@
 
 **Qbit AIRDROP** - <i>Auto-parse & submit on paste</i> - a Magnet links is sent to qBittorrent with cleaned category and save location.
 
-Used in conjuctin with the <a href="https://github.com/InvenioX3/qbit_airdrop_card"><strong>Qbit AIRDROP Card</strong></a> Lovelace card, it provides a clean, mobile optimized UI for submitting magnet links and managing active torrents directly from a dashboard.
+Used in conjuction with the <a href="https://github.com/InvenioX3/qbit_airdrop_card"><strong>Qbit AIRDROP Card</strong></a> Lovelace card, it provides a clean, mobile optimized UI for submitting magnet links and managing torrents directly from a dashboard.
 
   - **Note: This integration assumes qBitorrent's webUI authentication is disabled.**
 
