@@ -68,7 +68,7 @@
   - Delete torrents (deleting files)
   - Remove torrents (keeping files)
 
-It is designed to be used together with the **Qbit Airdrop Card** Lovelace card, which provides the UI for pasting magnet links and managing active torrents directly from a dashboard.
+It is designed to be used together with the <a href="https://github.com/InvenioX3/qbit_airdrop_card"><strong>Qbit Airdrop Card</strong></a> Lovelace card, which provides the UI for pasting magnet links and managing active torrents directly from a dashboard.
 
 ---
 
@@ -92,7 +92,7 @@ It is designed to be used together with the **Qbit Airdrop Card** Lovelace card,
 
 ## Installation
 
-### 1. Install via HACS (recommended - notifications of updates only work if installed via HACS UI)
+### 1. Install via HACS
 
 1. Open **HACS → Integrations**.
 2. Add this repository as a **Custom Repository**:
