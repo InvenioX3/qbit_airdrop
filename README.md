@@ -67,6 +67,8 @@
 
 Used in conjuctin with the <a href="https://github.com/InvenioX3/qbit_airdrop_card"><strong>Qbit AIRDROP Card</strong></a> Lovelace card, it provides a clean, mobile optimized UI for submitting magnet links and managing active torrents directly from a dashboard.
 
+  - **Note: This integration assumes qBitorrent's webUI authentication is disabled.**
+
 ## Overview & Features
 
 - Submitting magnet links to qBittorrent through the **Qbit AIRDROP integration**
@@ -116,3 +118,80 @@ Used in conjuctin with the <a href="https://github.com/InvenioX3/qbit_airdrop_ca
 4. Restart Home Assistant when prompted
 5. Go to `Setting`->`Devices & services`->`Add integration` and search for **qbit_airdrop** and install it
    - Enter the **`HOST_IP:PORT`** and default save location, e.g. `//NAS/TV_SHOWS/`
+
+---
+
+## Services & Technical Architecture
+
+### Home Assistant domain and services
+
+This integration registers the `qbit_airdrop` domain in Home Assistant and currently exposes a single public service:
+
+- **Service**: `qbit_airdrop.add_magnet`  
+  - **Fields**
+    - `magnet` (string, required) – the raw `magnet:?` URI to submit.
+  - **Behavior**
+    - Normalizes and parses the incoming magnet URI.
+    - Derives a cleaned title from the tracker metadata (used for folder/category naming).
+    - Resolves an effective save location from:
+      - The base path configured in the integration (e.g. `//NAS/TV_SHOWS/`).
+      - The parsed title and simple “series vs one-off” heuristics.
+    - Forwards the request to qBittorrent’s WebUI API with the derived `savepath` and `category`.
+
+Automations and scripts should call `qbit_airdrop.add_magnet` directly rather than trying to talk to qBittorrent themselves.
+
+---
+
+### Communication with qBittorrent WebUI
+
+All interaction with qBittorrent happens via its HTTP WebUI API (`/api/v2/...`) using the `host` and `port` configured when you set up this integration.
+
+On magnet submission (`qbit_airdrop.add_magnet`):
+
+- The integration builds a request equivalent to:
+
+  - **Endpoint**
+
+    - `POST http://<host>:<port>/api/v2/torrents/add`
+
+  - **Form fields (core subset)**
+
+    - `urls` – the raw magnet URI.
+    - `savepath` – the fully-qualified path composed from your configured base path and the cleaned title.
+    - `category` – a derived or default category associated with that save path.
+
+- qBittorrent’s own category/save-path logic then takes over to:
+  - Create the category if needed.
+  - Create the on-disk folder.
+  - Apply any per-category defaults you have configured in qBittorrent itself.
+
+No direct database access or filesystem manipulation is performed by this integration; it always goes through the official WebUI API.
+
+---
+
+### Internal REST endpoints (for the Lovelace card)
+
+For the companion Lovelace card, the integration exposes a small REST surface via Home Assistant’s HTTP server. These endpoints are considered **internal** and may change between releases, but conceptually they map as follows:
+
+- **Torrent listing**
+  - A GET endpoint returns the current torrent list in JSON form.
+  - Under the hood this proxies qBittorrent’s `torrents/info` WebUI API to retrieve status, size, progress, category, etc.
+
+- **Torrent deletion**
+  - A POST endpoint accepts:
+    - One or more torrent identifiers (hashes).
+    - A flag indicating whether files on disk should also be removed.
+  - This is forwarded to qBittorrent’s `torrents/delete` WebUI API with the appropriate `deleteFiles=true/false` semantics.
+
+These REST endpoints are only used by the Qbit AIRDROP Lovelace card; they are not intended as a stable public API. If you need more advanced control from automations, you can combine:
+
+- Home Assistant’s `qbit_airdrop.add_magnet` service for submission.
+- Direct calls to qBittorrent’s WebUI API from your own tooling for niche operations.
+
+---
+
+### State and update model
+
+- The integration is intentionally **service-oriented**: it focuses on submitting and managing torrents rather than exposing a large number of Home Assistant entities.
+- Torrent state and metadata are fetched on demand for the REST endpoints used by the Lovelace card, rather than being stored as long-lived sensors.
+- There are no inbound webhooks; all traffic is initiated by Home Assistant towards qBittorrent’s WebUI API.
