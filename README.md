@@ -3,12 +3,15 @@
 -->
 <p align="center">
   <a href="https://github.com/InvenioX3/qbit_airdrop">
-    <img src="images/icon.png" alt="Qbit Airdrop Integration" width="256" />
+    <!-- PROJECT ICON PLACEHOLDER -->
+    <img src="images/icon.png" alt="Qbit AIRDROP Integration" width="256" />
   </a>
 </p>
 
-<h1 align="center">Qbit Airdrop - EASY magnet submission and torrent management.</h1>
+<h1 align="center">Qbit AIRDROP - <i>Easy</i> magnet submission and torrent management.</h1>
 
+<p align="center">
+  <!-- BADGES: COLORS & LINKS -->
   <a href="https://hacs.xyz/">
     <img
       alt="HACS Custom Integration"
@@ -62,13 +65,29 @@
 
 ## Overview
 
-**Qbit Airdrop** - Auto-parse/submit on pasting magnet links to qBittorrent via custom lovelace card in Home Assistant.
+**Qbit AIRDROP** - Auto-parse/submit on pasting magnet links to qBittorrent via custom lovelace card in Home Assistant.
 
-  - List of current torrents and their state
-  - Delete torrents, with optional confirmation (delete files)
-  - Remove torrents (keep files)
+It is designed to be used together with the <a href="https://github.com/InvenioX3/qbit_airdrop_card"><strong>Qbit AIRDROP Card</strong></a> Lovelace card, which provides the UI for pasting magnet links and managing active torrents directly from a dashboard.
 
-It is designed to be used together with the <a href="https://github.com/InvenioX3/qbit_airdrop_card"><strong>Qbit Airdrop Card</strong></a> Lovelace card, which provides the UI for pasting magnet links and managing active torrents directly from a dashboard.
+## Overview & Features
+
+The **Qbit AIRDROP Card** is a custom Lovelace card (HACS Dashboard plugin) for Home Assistant.
+Optimized for the Mobile Home Assistant app, it provides a streamlined UI for 
+
+- Submitting magnet links to qBittorrent through the **Qbit AIRDROP integration**
+  - Tap the general area of the **logo** and paste a `magnet:?` URL
+    - `magnet:?` is detected, parsed for show/movie title strings, and appends the cleaned title to the default save location for the Qbit integration
+      -  e.g. `//NAS/TV-Shows/` for series
+      -  Non-series items are saved in the default location set in the qBitorrent client
+    - qBitorrent client automatically creates the category and directory based on the save location
+- Managing torrents directly from this card
+  - Tapping the `State` column (leftmost) deletes the selected torrent and all related files, with optional confirmation prompt
+  - Tapping the `Size` field removes the selected torrent and retains all related files
+- Refreshing the list
+  - Tapping the "`Qbit AIRDROP`" section of the logo triggers a refresh of the torrent list
+
+  - Further instruction, including installation of the lovelace card can be found here:
+<a href="https://github.com/InvenioX3/qbit_airdrop_card/blob/main/README.md"><strong>Qbit AIRDROP Card</strong></a>
 
 ---
 
@@ -77,16 +96,16 @@ It is designed to be used together with the <a href="https://github.com/InvenioX
 - **Direct qBittorrent WebUI integration**
 - **Magnet submission service**
   - `qbit_airdrop.add_magnet` accepts a magnet link
-  - - Cleans the string and determines if it is a unique file or episodic.
-    - Submits the magnet with both category and save path.
-    - qBittorrent automatically creates and uses that folder as the download location.
+  - - Cleans the string and determines if it is a unique file or episodic
+    - Submits the magnet with both category and save path
+    - qBittorrent automatically creates that folder as the download location
 
 ## Requirements
 
-- Home Assistant (core) with the ability to install custom integrations.
-- HACS installed and configured.
+- Home Assistant (core) with the ability to install custom integrations
+- HACS installed and configured
 - A reachable **qBittorrent** instance with WebUI enabled:
-  - Host and port accessible from your Home Assistant instance.
+  - Host and port accessible from your Home Assistant instance
 
 ---
 
@@ -94,11 +113,11 @@ It is designed to be used together with the <a href="https://github.com/InvenioX
 
 ### 1. Install via HACS
 
-1. Open **HACS → Integrations**.
+1. Open **HACS → Integrations**
 2. Add this repository as a **Custom Repository**:
    - Repository: `https://github.com/InvenioX3/qbit_airdrop`
    - Category: `Integration`
-3. Search for **Qbit Airdrop** in HACS and `download` it.
-4. Restart Home Assistant when prompted.
+3. Search for **Qbit AIRDROP** in HACS and `download` it
+4. Restart Home Assistant when prompted
 5. Go to `Setting`->`Devices & services`->`Add integration` and search for **qbit_airdrop** and install it
    - Enter the **`HOST_IP:PORT`** and default save location, e.g. `//NAS/TV_SHOWS/`
