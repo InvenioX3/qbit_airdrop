@@ -98,11 +98,7 @@ It is designed to be used together with the **Qbit Airdrop Card** Lovelace card,
 2. Add this repository as a **Custom Repository**:
    - Repository: `https://github.com/InvenioX3/qbit_airdrop`
    - Category: `Integration`
-3. Search for **Qbit Airdrop** in HACS and install it.
+3. Search for **Qbit Airdrop** in HACS and `download` it.
 4. Restart Home Assistant when prompted.
-
-### 2. Manual installation
-
-1. Copy the `custom_components/qbit_airdrop` folder from this repository into:
-   ```text
-   <config>/custom_components/qbit_airdrop
+5. Go to `Setting`->`Devices & services`->`Add integration` and search for **qbit_airdrop** and install it
+   - Enter the **`HOST_IP:PORT`** and default save location, e.g. `//NAS/TV_SHOWS/`
