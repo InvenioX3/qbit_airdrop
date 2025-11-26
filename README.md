@@ -65,8 +65,8 @@
 **Qbit Airdrop** - Auto-parse/submit on pasting magnet links to qBittorrent via custom lovelace card in Home Assistant.
 
   - List of current torrents and their state
-  - Delete torrents (deleting files)
-  - Remove torrents (keeping files)
+  - Delete torrents, with optional confirmation (delete files)
+  - Remove torrents (keep files)
 
 It is designed to be used together with the <a href="https://github.com/InvenioX3/qbit_airdrop_card"><strong>Qbit Airdrop Card</strong></a> Lovelace card, which provides the UI for pasting magnet links and managing active torrents directly from a dashboard.
 
