@@ -8,7 +8,7 @@
   </a>
 </p>
 
-<h1 align="center">Qbit AIRDROP - <i>Easy</i> magnet submission and torrent management.</h1>
+<h1 align="center">Qbit AIRDROP - <i>Easy</i> magnet submission and qBittorent torrent management in Home Assistant</h1>
 
 <p align="center">
   <!-- BADGES: COLORS & LINKS -->
@@ -63,16 +63,11 @@
 
 ---
 
-## Overview
+**Qbit AIRDROP** - <i>Auto-parse & submit on paste</i> - a Magnet links is sent to qBittorrent with cleaned category and save location.
 
-**Qbit AIRDROP** - Auto-parse/submit on pasting magnet links to qBittorrent via custom lovelace card in Home Assistant.
-
-It is designed to be used together with the <a href="https://github.com/InvenioX3/qbit_airdrop_card"><strong>Qbit AIRDROP Card</strong></a> Lovelace card, which provides the UI for pasting magnet links and managing active torrents directly from a dashboard.
+Used in conjuctin with the <a href="https://github.com/InvenioX3/qbit_airdrop_card"><strong>Qbit AIRDROP Card</strong></a> Lovelace card, it provides a clean, mobile optimized UI for submitting magnet links and managing active torrents directly from a dashboard.
 
 ## Overview & Features
-
-The **Qbit AIRDROP Card** is a custom Lovelace card (HACS Dashboard plugin) for Home Assistant.
-Optimized for the Mobile Home Assistant app, it provides a streamlined UI for 
 
 - Submitting magnet links to qBittorrent through the **Qbit AIRDROP integration**
   - Tap the general area of the **logo** and paste a `magnet:?` URL
