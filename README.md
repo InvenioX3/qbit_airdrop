@@ -4,11 +4,11 @@
 <p align="center">
   <a href="https://github.com/InvenioX3/qbit_airdrop">
     <!-- PROJECT ICON PLACEHOLDER -->
-    <img src="images/icon.png" alt="Qbit AIRDROP Integration" width="256" />
+    <img src="images/icon.png" alt="Qbit Airdrop Integration" width="256" />
   </a>
 </p>
 
-<h1 align="center">Qbit AIRDROP - <i>Easy</i> magnet submission and qBittorent torrent management in Home Assistant</h1>
+<h1 align="center">Qbit Airdrop - <i>Easy</i> magnet submission and qBittorent torrent management in Home Assistant</h1>
 
 <p align="center">
   <!-- BADGES: COLORS & LINKS -->
@@ -63,15 +63,15 @@
 
 ---
 
-**Qbit AIRDROP** - <i>Auto-parse & submit on paste</i> - a Magnet links is sent to qBittorrent with cleaned category and save location.
+**Qbit Airdrop** - <i>Auto-parse & submit on paste</i> - a Magnet links is sent to qBittorrent with cleaned category and save location.
 
-Used in conjuction with the <a href="https://github.com/InvenioX3/qbit_airdrop_card"><strong>Qbit AIRDROP Card</strong></a> Lovelace card, it provides a clean, mobile optimized UI for submitting magnet links and managing torrents directly from a dashboard.
+Used in conjuction with the <a href="https://github.com/InvenioX3/qbit_airdrop_card"><strong>Qbit Airdrop Card</strong></a> Lovelace card, it provides a clean, mobile optimized UI for submitting magnet links and managing torrents directly from a dashboard.
 
   - **Note: This integration assumes qBitorrent's webUI authentication is disabled.**
 
 ## Overview & Features
 
-- Submitting magnet links to qBittorrent through the **Qbit AIRDROP integration**
+- Submitting magnet links to qBittorrent through the **Qbit Airdrop integration**
   - Tap the general area of the **logo** and paste a `magnet:?` URL
     - `magnet:?` is detected, parsed for show/movie title strings, and appends the cleaned title to the default save location for the Qbit integration
       -  e.g. `//NAS/TV-Shows/` for series
@@ -81,10 +81,10 @@ Used in conjuction with the <a href="https://github.com/InvenioX3/qbit_airdrop_c
   - Tapping the `State` column (leftmost) deletes the selected torrent and all related files, with optional confirmation prompt
   - Tapping the `Size` field removes the selected torrent and retains all related files
 - Refreshing the list
-  - Tapping the "`Qbit AIRDROP`" section of the logo triggers a refresh of the torrent list
+  - Tapping the "`Qbit Airdrop`" section of the logo triggers a refresh of the torrent list
 
   - Further instruction, including installation of the lovelace card can be found here:
-<a href="https://github.com/InvenioX3/qbit_airdrop_card/blob/main/README.md"><strong>Qbit AIRDROP Card</strong></a>
+<a href="https://github.com/InvenioX3/qbit_airdrop_card/blob/main/README.md"><strong>Qbit Airdrop Card</strong></a>
 
 ---
 
@@ -114,7 +114,7 @@ Used in conjuction with the <a href="https://github.com/InvenioX3/qbit_airdrop_c
 2. Add this repository as a **Custom Repository**:
    - Repository: `https://github.com/InvenioX3/qbit_airdrop`
    - Category: `Integration`
-3. Search for **Qbit AIRDROP** in HACS and `download` it
+3. Search for **Qbit Airdrop** in HACS and `download` it
 4. Restart Home Assistant when prompted
 5. Go to `Setting`->`Devices & services`->`Add integration` and search for **qbit_airdrop** and install it
    - Enter the **`HOST_IP:PORT`** and default save location, e.g. `//NAS/TV_SHOWS/`
@@ -183,7 +183,7 @@ For the companion Lovelace card, the integration exposes a small REST surface vi
     - A flag indicating whether files on disk should also be removed.
   - This is forwarded to qBittorrent’s `torrents/delete` WebUI API with the appropriate `deleteFiles=true/false` semantics.
 
-These REST endpoints are only used by the Qbit AIRDROP Lovelace card; they are not intended as a stable public API. If you need more advanced control from automations, you can combine:
+These REST endpoints are only used by the Qbit Airdrop Lovelace card; they are not intended as a stable public API. If you need more advanced control from automations, you can combine:
 
 - Home Assistant’s `qbit_airdrop.add_magnet` service for submission.
 - Direct calls to qBittorrent’s WebUI API from your own tooling for niche operations.
