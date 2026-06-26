@@ -83,7 +83,7 @@ class QbitAirdropActiveView(HomeAssistantView):
                     # pass-through for the card
                     "dlspeed": obj.get("dlspeed", 0),           # bytes/sec
                     "upspeed": obj.get("upspeed", 0),           # bytes/sec
-                    "availability": obj.get("availability", None)
+                    "availability": obj.get("availability", None),
                     # seed information
                     "num_seeds": obj.get("num_seeds", 0),
                     "num_complete": obj.get("num_complete", 0),
