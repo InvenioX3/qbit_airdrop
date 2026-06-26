@@ -84,6 +84,9 @@ class QbitAirdropActiveView(HomeAssistantView):
                     "dlspeed": obj.get("dlspeed", 0),           # bytes/sec
                     "upspeed": obj.get("upspeed", 0),           # bytes/sec
                     "availability": obj.get("availability", None)
+                    # seed information
+                    "num_seeds": obj.get("num_seeds", 0),
+                    "num_complete": obj.get("num_complete", 0),
                 })
 
         # read confirm_delete flag from entry data/options
