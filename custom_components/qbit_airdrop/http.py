@@ -87,7 +87,7 @@ class QbitAirdropActiveView(HomeAssistantView):
                     # seed information
                     "num_seeds": obj.get("num_seeds", 0),
                     "num_complete": obj.get("num_complete", 0),
-                    "completed": obj.get("completed", None)
+                    "completed": obj.get("completed", None),
                 })
 
         # read confirm_delete flag from entry data/options
