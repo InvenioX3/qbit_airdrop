@@ -54,7 +54,7 @@ def _season_from_magnet(magnet: str) -> str:
     if m:
         return m.group(1).upper()
 
-    m = re.search(r"\b(S\d{1,2})\b", dn, re.I)
+    m = re.search(r"\b(S\d{1,2})\b(?!-\d)", dn, re.I)
     if m:
         return m.group(1).upper()
 
