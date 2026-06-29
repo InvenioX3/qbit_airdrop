@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from typing import Tuple
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
+import re
 
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.config_entries import ConfigEntry
@@ -39,7 +40,25 @@ def _resolve_base_path(entry: ConfigEntry) -> str:
     d = entry.options or entry.data or {}
     base_path = (d.get(CONF_BASE_PATH) or "").strip()
     return base_path
+    
+def _season_from_magnet(magnet: str) -> str:
+    try:
+        query = magnet.split("?", 1)[1]
+        dn = parse_qs(query).get("dn", [""])[0]
+    except Exception:
+        return ""
 
+    dn = dn.replace("+", " ")
+
+    m = re.search(r"\b(S\d{1,2})E\d{1,3}\b", dn, re.I)
+    if m:
+        return m.group(1).upper()
+
+    m = re.search(r"\b(S\d{1,2})\b", dn, re.I)
+    if m:
+        return m.group(1).upper()
+
+    return ""
 
 async def async_setup(hass: HomeAssistant, config) -> bool:
     return True
@@ -66,12 +85,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             return
 
         base_path = _resolve_base_path(entry)
+        season = _season_from_magnet(magnet)
 
         savepath = ""
         if category and base_path:
             # Join base_path + category, ensure trailing slash
             sep_needed = not (base_path.endswith("/") or base_path.endswith("\\"))
             savepath = f"{base_path}{'/' if sep_needed else ''}{category}"
+
+            if season:
+                savepath = f"{savepath}/{season}"
+            
             if not (savepath.endswith("/") or savepath.endswith("\\")):
                 savepath = f"{savepath}/"
             try:
