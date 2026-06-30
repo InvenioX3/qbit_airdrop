@@ -82,6 +82,15 @@ def _episode_filename_from_magnet(magnet: str) -> str:
     show = show.strip(" ._-")
 
     return f"{show} {m.group(1).upper()}".strip()
+    
+def _hash_from_magnet(magnet: str) -> str:
+    m = re.search(
+        r"xt=urn:btih:([a-fA-F0-9]+)",
+        magnet,
+        re.I,
+    )
+
+    return m.group(1).lower() if m else ""
 
 async def async_setup(hass: HomeAssistant, config) -> bool:
     return True
@@ -110,6 +119,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         base_path = _resolve_base_path(entry)
         season = _season_from_magnet(magnet)
         episode_name = _episode_filename_from_magnet(magnet)
+        torrent_hash = _hash_from_magnet(magnet)
 
         savepath = ""
         if category and base_path:
@@ -151,23 +161,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     await asyncio.sleep(3)
 
                     try:
-                        async with session.get(
-                            f"{base}/api/v2/torrents/info",
-                            timeout=10,
-                        ) as info_resp:
-                            torrents = await info_resp.json()
-
-                        torrent_hash = ""
-
-                        for t in torrents:
-                            if category and t.get("category") != category:
-                                continue
-
-                            name = str(t.get("name", ""))
-
-                            if season and season in name:
-                                torrent_hash = t.get("hash", "")
-                                break
 
                         if torrent_hash:
                             async with session.get(
