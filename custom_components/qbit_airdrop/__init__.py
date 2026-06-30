@@ -228,6 +228,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                     except Exception:
                         pass
+        except Exception:
+            pass
 
     async def reload_entry(call: ServiceCall) -> None:
         await hass.config_entries.async_reload(entry.entry_id)
