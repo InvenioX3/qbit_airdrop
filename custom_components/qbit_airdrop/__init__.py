@@ -115,7 +115,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         try:
             files = []
 
-            for _ in range(15):
+            for _ in range(60):
                 async with session.get(
                     f"{base}/api/v2/torrents/files",
                     params={"hash": torrent_hash},
