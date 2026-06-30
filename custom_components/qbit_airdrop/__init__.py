@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Tuple
 from urllib.parse import urlparse, parse_qs
+import asyncio
+import os
 import re
 
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -59,6 +61,27 @@ def _season_from_magnet(magnet: str) -> str:
         return m.group(1).upper()
 
     return ""
+    
+def _episode_filename_from_magnet(magnet: str) -> str:
+    try:
+        query = magnet.split("?", 1)[1]
+        dn = parse_qs(query).get("dn", [""])[0]
+    except Exception:
+        return ""
+
+    dn = dn.replace("+", " ")
+
+    m = re.search(r"\b(S\d{1,2}E\d{1,3})\b", dn, re.I)
+    if not m:
+        return ""
+
+    show = dn[:m.start()]
+
+    show = re.sub(r"\s*\(?\b(?:19|20)\d{2}\b\)?\s*", " ", show)
+    show = re.sub(r"[._]+", " ", show)
+    show = show.strip(" ._-")
+
+    return f"{show} {m.group(1).upper()}".strip()
 
 async def async_setup(hass: HomeAssistant, config) -> bool:
     return True
@@ -86,6 +109,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         base_path = _resolve_base_path(entry)
         season = _season_from_magnet(magnet)
+        episode_name = _episode_filename_from_magnet(magnet)
 
         savepath = ""
         if category and base_path:
@@ -123,8 +147,87 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 timeout=20,
             ) as resp:
                 await resp.text()  # quiet behavior
-        except Exception:
-            pass
+                if episode_name:
+                    await asyncio.sleep(3)
+
+                    try:
+                        async with session.get(
+                            f"{base}/api/v2/torrents/info",
+                            timeout=10,
+                        ) as info_resp:
+                            torrents = await info_resp.json()
+
+                        torrent_hash = ""
+
+                        for t in torrents:
+                            if category and t.get("category") != category:
+                                continue
+
+                            name = str(t.get("name", ""))
+
+                            if season and season in name:
+                                torrent_hash = t.get("hash", "")
+                                break
+
+                        if torrent_hash:
+                            async with session.get(
+                                f"{base}/api/v2/torrents/files",
+                                params={"hash": torrent_hash},
+                                timeout=10,
+                            ) as files_resp:
+                                files = await files_resp.json()
+
+                            video_exts = {
+                                ".mkv",
+                                ".mp4",
+                                ".avi",
+                                ".m4v",
+                                ".mov",
+                                ".ts",
+                                ".m2ts",
+                                ".wmv",
+                            }
+
+                            best = None
+
+                            for f in files:
+                                path = str(f.get("name", ""))
+                                ext = os.path.splitext(path)[1].lower()
+
+                                if ext not in video_exts:
+                                    continue
+
+                                if (
+                                    best is None or
+                                    f.get("size", 0) > best.get("size", 0)
+                                ):
+                                    best = f
+
+                            if best:
+                                old_path = best["name"]
+                                ext = os.path.splitext(old_path)[1]
+
+                                if "/" in old_path:
+                                    folder = old_path.rsplit("/", 1)[0]
+                                    new_path = (
+                                        f"{folder}/"
+                                        f"{episode_name}{ext}"
+                                    )
+                                else:
+                                    new_path = f"{episode_name}{ext}"
+
+                                await session.post(
+                                    f"{base}/api/v2/torrents/renameFile",
+                                    data={
+                                        "hash": torrent_hash,
+                                        "oldPath": old_path,
+                                        "newPath": new_path,
+                                    },
+                                    timeout=10,
+                                )
+
+                    except Exception:
+                        pass
 
     async def reload_entry(call: ServiceCall) -> None:
         await hass.config_entries.async_reload(entry.entry_id)
