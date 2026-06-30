@@ -105,6 +105,96 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     session = aiohttp_client.async_get_clientsession(hass)
 
+    async def process_torrent(
+        base: str,
+        torrent_hash: str,
+        episode_name: str,
+        season: str,
+    ) -> None:
+
+        try:
+            files = []
+
+            for _ in range(15):
+                async with session.get(
+                    f"{base}/api/v2/torrents/files",
+                    params={"hash": torrent_hash},
+                    timeout=10,
+                ) as files_resp:
+                    files = await files_resp.json()
+
+                if files:
+                    break
+
+                await asyncio.sleep(1)
+
+            if not files:
+                return
+
+            video_exts = {
+                ".mkv",
+                ".mp4",
+                ".avi",
+                ".m4v",
+                ".mov",
+                ".ts",
+                ".m2ts",
+                ".wmv",
+            }
+
+            best = None
+
+            for f in files:
+                path = str(f.get("name", ""))
+                ext = os.path.splitext(path)[1].lower()
+
+                if ext not in video_exts:
+                    continue
+
+                if (
+                    best is None or
+                    f.get("size", 0) > best.get("size", 0)
+                ):
+                    best = f
+
+            if not best:
+                return
+
+            old_path = best["name"]
+            ext = os.path.splitext(old_path)[1]
+
+            if "/" in old_path:
+                folder = old_path.rsplit("/", 1)[0]
+                new_path = f"{folder}/{episode_name}{ext}"
+            else:
+                new_path = f"{episode_name}{ext}"
+
+            await session.post(
+                f"{base}/api/v2/torrents/renameFile",
+                data={
+                    "hash": torrent_hash,
+                    "oldPath": old_path,
+                    "newPath": new_path,
+                },
+                timeout=10,
+            )
+
+            if season and "/" in old_path:
+                root_folder = old_path.split("/", 1)[0]
+
+                await session.post(
+                    f"{base}/api/v2/torrents/renameFolder",
+                    data={
+                        "hash": torrent_hash,
+                        "oldPath": root_folder,
+                        "newPath": season,
+                    },
+                    timeout=10,
+                )
+
+        except Exception:
+            pass
+
     async def add_magnet(call: ServiceCall) -> None:
         data = call.data or {}
         magnet = (data.get("magnet") or "").strip()
@@ -157,83 +247,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 timeout=20,
             ) as resp:
                 await resp.text()  # quiet behavior
-                if episode_name:
-                    await asyncio.sleep(3)
 
-                    try:
-
-                        if torrent_hash:
-                            async with session.get(
-                                f"{base}/api/v2/torrents/files",
-                                params={"hash": torrent_hash},
-                                timeout=10,
-                            ) as files_resp:
-                                files = await files_resp.json()
-
-                            video_exts = {
-                                ".mkv",
-                                ".mp4",
-                                ".avi",
-                                ".m4v",
-                                ".mov",
-                                ".ts",
-                                ".m2ts",
-                                ".wmv",
-                            }
-
-                            best = None
-
-                            for f in files:
-                                path = str(f.get("name", ""))
-                                ext = os.path.splitext(path)[1].lower()
-
-                                if ext not in video_exts:
-                                    continue
-
-                                if (
-                                    best is None or
-                                    f.get("size", 0) > best.get("size", 0)
-                                ):
-                                    best = f
-
-                            if best:
-                                old_path = best["name"]
-                                ext = os.path.splitext(old_path)[1]
-
-                                if "/" in old_path:
-                                    folder = old_path.rsplit("/", 1)[0]
-                                    new_path = (
-                                        f"{folder}/"
-                                        f"{episode_name}{ext}"
-                                    )
-                                else:
-                                    new_path = f"{episode_name}{ext}"
-
-                                await session.post(
-                                    f"{base}/api/v2/torrents/renameFile",
-                                    data={
-                                        "hash": torrent_hash,
-                                        "oldPath": old_path,
-                                        "newPath": new_path,
-                                    },
-                                    timeout=10,
-                                )
-
-                                if season and "/" in old_path:
-                                    root_folder = old_path.split("/", 1)[0]
-
-                                    await session.post(
-                                        f"{base}/api/v2/torrents/renameFolder",
-                                        data={
-                                            "hash": torrent_hash,
-                                            "oldPath": root_folder,
-                                            "newPath": season,
-                                        },
-                                        timeout=10,
-                                    )
-
-                    except Exception:
-                        pass
+                if episode_name and torrent_hash:
+                    hass.async_create_task(
+                        process_torrent(
+                            base,
+                            torrent_hash,
+                            episode_name,
+                            season,
+                        )
+                    )
         except Exception:
             pass
 
