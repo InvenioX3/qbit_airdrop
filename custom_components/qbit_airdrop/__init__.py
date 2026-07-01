@@ -147,7 +147,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                 folder_name = season if season else rename_name
 
-                await session.post(
+                async with session.post(
                     f"{base}/api/v2/torrents/renameFolder",
                     data={
                         "hash": torrent_hash,
@@ -155,7 +155,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         "newPath": folder_name,
                     },
                     timeout=10,
-                )
+                ) as resp:
+
+                    if resp.status >= 400:
+                        return False
 
             if best and rename_name:
                 old_path = best["name"]
@@ -178,7 +181,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     ext = os.path.splitext(old_path)[1]
                     new_path = f"{rename_name}{ext}"
 
-                await session.post(
+                async with session.post(
                     f"{base}/api/v2/torrents/renameFile",
                     data={
                         "hash": torrent_hash,
@@ -186,7 +189,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         "newPath": new_path,
                     },
                     timeout=10,
-                )
+                ) as resp:
+
+                    if resp.status >= 400:
+                        return False
 
         except Exception:
             return False
