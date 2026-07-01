@@ -83,31 +83,6 @@ def _episode_filename_from_magnet(magnet: str) -> str:
 
     return f"{show} {m.group(1).upper()}".strip()
     
-def _movie_filename_from_magnet(magnet: str) -> str:
-    try:
-        query = magnet.split("?", 1)[1]
-        dn = parse_qs(query).get("dn", [""])[0]
-    except Exception:
-        return ""
-
-    dn = dn.replace("+", " ")
-
-    m = re.search(
-        r"([A-Za-z][A-Za-z0-9 '&:.\-]+?(?:[ .]+)(?:19|20)\d{2})",
-        dn,
-        re.I,
-    )
-
-    if not m:
-        return ""
-
-    title = m.group(1)
-
-    title = title.replace(".", " ")
-    title = re.sub(r"\s{2,}", " ", title)
-
-    return title.strip()
-    
 def _hash_from_magnet(magnet: str) -> str:
     m = re.search(
         r"xt=urn:btih:([a-fA-F0-9]+)",
@@ -129,6 +104,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.http.register_view(QbitAirdropDeleteView(hass, entry))
 
     session = aiohttp_client.async_get_clientsession(hass)
+    pending_renames: dict[str, dict] = {}
+    queue_task = None
+    queue_task = hass.async_create_task(
+        process_pending_queue()
+    )
 
     async def process_torrent(
         base: str,
@@ -154,7 +134,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 await asyncio.sleep(1)
 
             if not files:
-                return
+                return False
 
             video_exts = {
                 ".mkv",
@@ -221,7 +201,43 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 )
 
         except Exception:
-            pass
+            return False
+
+        return True
+        
+    async def process_pending_queue() -> None:
+        while True:
+
+            for torrent_hash, item in list(
+                pending_renames.items()
+            ):
+                ok = await process_torrent(
+                    item["base"],
+                    torrent_hash,
+                    item["rename_name"],
+                    item["season"],
+                )
+
+                if ok:
+                    pending_renames.pop(
+                        torrent_hash,
+                        None,
+                    )
+                    continue
+
+                item["attempts"] += 1
+
+                if item["attempts"] > 1440:
+                    pending_renames.pop(
+                        torrent_hash,
+                        None,
+                    )
+
+            await asyncio.sleep(60)
+            
+    queue_task = hass.async_create_task(
+        process_pending_queue()
+    )
 
     async def add_magnet(call: ServiceCall) -> None:
         data = call.data or {}
@@ -298,14 +314,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     rename_name or
                     season
                 ):
-                    hass.async_create_task(
-                        process_torrent(
-                            base,
-                            torrent_hash,
-                            rename_name,
-                            season,
-                        )
-                    )
+                    pending_renames[torrent_hash] = {
+                        "base": base,
+                        "rename_name": rename_name,
+                        "season": season,
+                        "attempts": 0,
+                    }
+                    
         except Exception:
             pass
 
