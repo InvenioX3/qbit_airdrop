@@ -177,23 +177,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     timeout=10,
                 )
 
-                folder_source = None
+                    folder_source = None
 
                 if best:
                     folder_source = best["name"]
 
-                if season and folder_source and "/" in folder_source:
-                root_folder = folder_source.split("/", 1)[0]
+                if best and episode_name:
+                    ...
+                    renameFile()
 
-                await session.post(
-                    f"{base}/api/v2/torrents/renameFolder",
-                    data={
-                        "hash": torrent_hash,
-                        "oldPath": root_folder,
-                        "newPath": season,
-                    },
-                    timeout=10,
-                )
+                if season and folder_source and "/" in folder_source:
+                    root_folder = folder_source.split("/", 1)[0]
+
+                    await session.post(
+                        f"{base}/api/v2/torrents/renameFolder",
+                        data={
+                            "hash": torrent_hash,
+                            "oldPath": root_folder,
+                            "newPath": season,
+                        },
+                        timeout=10,
+                    )
 
         except Exception:
             pass
