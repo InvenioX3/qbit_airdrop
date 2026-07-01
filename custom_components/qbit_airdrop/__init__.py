@@ -241,6 +241,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         magnet = (data.get("magnet") or "").strip()
         category = (data.get("category") or "").strip()
         clean_title = (data.get("clean_title") or "").strip()
+        
+        _LOGGER.warning(
+            "QBIT_AIRDROP clean_title=%s",
+            clean_title,
+        )
 
         res = (data.get("res") or "").strip()
         codec = (data.get("codec") or "").strip()
