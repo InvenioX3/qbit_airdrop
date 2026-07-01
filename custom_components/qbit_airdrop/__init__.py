@@ -221,7 +221,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         None,
                     )
 
-            await asyncio.sleep(60)
+            await asyncio.sleep(15)
             
     hass.async_create_task(
         process_pending_queue()
