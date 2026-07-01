@@ -137,26 +137,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 ):
                     best = f
 
-            if best and rename_name:
-                old_path = best["name"]
-                ext = os.path.splitext(old_path)[1]
-
-                if "/" in old_path:
-                    folder = old_path.rsplit("/", 1)[0]
-                    new_path = f"{folder}/{rename_name}{ext}"
-                else:
-                    new_path = f"{rename_name}{ext}"
-
-                await session.post(
-                    f"{base}/api/v2/torrents/renameFile",
-                    data={
-                        "hash": torrent_hash,
-                        "oldPath": old_path,
-                        "newPath": new_path,
-                    },
-                    timeout=10,
-                )
-
             folder_source = None
 
             if best:
@@ -173,6 +153,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         "hash": torrent_hash,
                         "oldPath": root_folder,
                         "newPath": folder_name,
+                    },
+                    timeout=10,
+                )
+
+            if best and rename_name:
+                old_path = best["name"]
+
+                if "/" in old_path:
+                    current_file = old_path.rsplit("/", 1)[1]
+                    ext = os.path.splitext(current_file)[1]
+
+                    current_folder = (
+                        folder_name
+                        if folder_source and "/" in folder_source
+                        else old_path.rsplit("/", 1)[0]
+                    )
+
+                    new_path = (
+                        f"{current_folder}/"
+                        f"{rename_name}{ext}"
+                    )
+                else:
+                    ext = os.path.splitext(old_path)[1]
+                    new_path = f"{rename_name}{ext}"
+
+                await session.post(
+                    f"{base}/api/v2/torrents/renameFile",
+                    data={
+                        "hash": torrent_hash,
+                        "oldPath": old_path,
+                        "newPath": new_path,
                     },
                     timeout=10,
                 )
