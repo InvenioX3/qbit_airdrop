@@ -108,8 +108,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     queue_task = None
 
     async def process_torrent(
-
-    async def process_torrent(
         base: str,
         torrent_hash: str,
         rename_name: str,
