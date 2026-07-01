@@ -83,6 +83,31 @@ def _episode_filename_from_magnet(magnet: str) -> str:
 
     return f"{show} {m.group(1).upper()}".strip()
     
+def _movie_filename_from_magnet(magnet: str) -> str:
+    try:
+        query = magnet.split("?", 1)[1]
+        dn = parse_qs(query).get("dn", [""])[0]
+    except Exception:
+        return ""
+
+    dn = dn.replace("+", " ")
+
+    m = re.search(
+        r"([A-Za-z][A-Za-z0-9 '&:.\-]+?\s+(?:19|20)\d{2})",
+        dn,
+        re.I,
+    )
+
+    if not m:
+        return ""
+
+    title = m.group(1)
+
+    title = title.replace(".", " ")
+    title = re.sub(r"\s{2,}", " ", title)
+
+    return title.strip()
+    
 def _hash_from_magnet(magnet: str) -> str:
     m = re.search(
         r"xt=urn:btih:([a-fA-F0-9]+)",
@@ -109,6 +134,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         base: str,
         torrent_hash: str,
         episode_name: str,
+        movie_name: str,
         season: str,
     ) -> None:
 
@@ -157,15 +183,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 ):
                     best = f
 
-            if best and episode_name:
+            rename_name = episode_name or movie_name
+
+            if best and rename_name:
                 old_path = best["name"]
                 ext = os.path.splitext(old_path)[1]
 
                 if "/" in old_path:
                     folder = old_path.rsplit("/", 1)[0]
-                    new_path = f"{folder}/{episode_name}{ext}"
+                    new_path = f"{folder}/{rename_name}{ext}"
                 else:
-                    new_path = f"{episode_name}{ext}"
+                    new_path = f"{rename_name}{ext}"
 
                 await session.post(
                     f"{base}/api/v2/torrents/renameFile",
@@ -212,6 +240,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         base_path = _resolve_base_path(entry)
         season = _season_from_magnet(magnet)
         episode_name = _episode_filename_from_magnet(magnet)
+        movie_name = _movie_filename_from_magnet(magnet)
         torrent_hash = _hash_from_magnet(magnet)
 
         savepath = ""
@@ -251,12 +280,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             ) as resp:
                 await resp.text()  # quiet behavior
 
-                if torrent_hash and (episode_name or season):
+                if torrent_hash and (
+                    episode_name or
+                    movie_name or
+                    season
+                ):
                     hass.async_create_task(
                         process_torrent(
                             base,
                             torrent_hash,
                             episode_name,
+                            movie_name,
                             season,
                         )
                     )
