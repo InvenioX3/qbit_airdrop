@@ -93,7 +93,7 @@ def _movie_filename_from_magnet(magnet: str) -> str:
     dn = dn.replace("+", " ")
 
     m = re.search(
-        r"([A-Za-z][A-Za-z0-9 '&:.\-]+?\s+(?:19|20)\d{2})",
+        r"([A-Za-z][A-Za-z0-9 '&:.\-]+?(?:[ .]+)(?:19|20)\d{2})",
         dn,
         re.I,
     )
