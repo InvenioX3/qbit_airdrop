@@ -62,27 +62,6 @@ def _season_from_magnet(magnet: str) -> str:
 
     return ""
     
-def _episode_filename_from_magnet(magnet: str) -> str:
-    try:
-        query = magnet.split("?", 1)[1]
-        dn = parse_qs(query).get("dn", [""])[0]
-    except Exception:
-        return ""
-
-    dn = dn.replace("+", " ")
-
-    m = re.search(r"\b(S\d{1,2}E\d{1,3})\b", dn, re.I)
-    if not m:
-        return ""
-
-    show = dn[:m.start()]
-
-    show = re.sub(r"\s*\(?\b(?:19|20)\d{2}\b\)?\s*", " ", show)
-    show = re.sub(r"[._]+", " ", show)
-    show = show.strip(" ._-")
-
-    return f"{show} {m.group(1).upper()}".strip()
-    
 def _hash_from_magnet(magnet: str) -> str:
     m = re.search(
         r"xt=urn:btih:([a-fA-F0-9]+)",
@@ -105,14 +84,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     session = aiohttp_client.async_get_clientsession(hass)
     pending_renames: dict[str, dict] = {}
-    queue_task = None
 
     async def process_torrent(
         base: str,
         torrent_hash: str,
         rename_name: str,
         season: str,
-    ) -> None:
+    ) -> bool:
 
         try:
             files = []
@@ -184,15 +162,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if best:
                 folder_source = best["name"]
 
-            if season and folder_source and "/" in folder_source:
+            if folder_source and "/" in folder_source:
                 root_folder = folder_source.split("/", 1)[0]
+
+                folder_name = season if season else rename_name
 
                 await session.post(
                     f"{base}/api/v2/torrents/renameFolder",
                     data={
                         "hash": torrent_hash,
                         "oldPath": root_folder,
-                        "newPath": season,
+                        "newPath": folder_name,
                     },
                     timeout=10,
                 )
@@ -232,7 +212,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
             await asyncio.sleep(60)
             
-    queue_task = hass.async_create_task(
+    hass.async_create_task(
         process_pending_queue()
     )
 
