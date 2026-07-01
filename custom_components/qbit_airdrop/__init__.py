@@ -106,9 +106,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     session = aiohttp_client.async_get_clientsession(hass)
     pending_renames: dict[str, dict] = {}
     queue_task = None
-    queue_task = hass.async_create_task(
-        process_pending_queue()
-    )
+
+    async def process_torrent(
 
     async def process_torrent(
         base: str,
@@ -257,7 +256,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         base_path = _resolve_base_path(entry)
         season = _season_from_magnet(magnet)
-        episode_name = _episode_filename_from_magnet(magnet)
         torrent_hash = _hash_from_magnet(magnet)
 
         media_parts = [
