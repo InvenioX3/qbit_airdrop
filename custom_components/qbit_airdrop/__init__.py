@@ -157,30 +157,33 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 ):
                     best = f
 
-            if not best:
-                return
+            if best and episode_name:
+                old_path = best["name"]
+                ext = os.path.splitext(old_path)[1]
 
-            old_path = best["name"]
-            ext = os.path.splitext(old_path)[1]
+                if "/" in old_path:
+                    folder = old_path.rsplit("/", 1)[0]
+                    new_path = f"{folder}/{episode_name}{ext}"
+                else:
+                    new_path = f"{episode_name}{ext}"
 
-            if "/" in old_path:
-                folder = old_path.rsplit("/", 1)[0]
-                new_path = f"{folder}/{episode_name}{ext}"
-            else:
-                new_path = f"{episode_name}{ext}"
+                await session.post(
+                    f"{base}/api/v2/torrents/renameFile",
+                    data={
+                        "hash": torrent_hash,
+                        "oldPath": old_path,
+                        "newPath": new_path,
+                    },
+                    timeout=10,
+                )
 
-            await session.post(
-                f"{base}/api/v2/torrents/renameFile",
-                data={
-                    "hash": torrent_hash,
-                    "oldPath": old_path,
-                    "newPath": new_path,
-                },
-                timeout=10,
-            )
+                folder_source = None
 
-            if season and "/" in old_path:
-                root_folder = old_path.split("/", 1)[0]
+                if best:
+                    folder_source = best["name"]
+
+                if season and folder_source and "/" in folder_source:
+                root_folder = folder_source.split("/", 1)[0]
 
                 await session.post(
                     f"{base}/api/v2/torrents/renameFolder",
@@ -248,7 +251,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             ) as resp:
                 await resp.text()  # quiet behavior
 
-                if episode_name and torrent_hash:
+                if torrent_hash and (episode_name or season):
                     hass.async_create_task(
                         process_torrent(
                             base,
