@@ -261,6 +261,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if p
         ]
 
+        clean_title = re.sub(
+            r'[<>:"/\\|?*]',
+            "",
+            clean_title,
+        )
+
         rename_name = clean_title
 
         if media_parts:
