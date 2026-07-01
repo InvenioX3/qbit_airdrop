@@ -133,8 +133,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async def process_torrent(
         base: str,
         torrent_hash: str,
-        episode_name: str,
-        movie_name: str,
+        rename_name: str,
         season: str,
     ) -> None:
 
@@ -183,8 +182,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 ):
                     best = f
 
-            rename_name = episode_name or movie_name
-
             if best and rename_name:
                 old_path = best["name"]
                 ext = os.path.splitext(old_path)[1]
@@ -230,6 +227,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         data = call.data or {}
         magnet = (data.get("magnet") or "").strip()
         category = (data.get("category") or "").strip()
+        clean_title = (data.get("clean_title") or "").strip()
+
+        res = (data.get("res") or "").strip()
+        codec = (data.get("codec") or "").strip()
+        audio = (data.get("audio") or "").strip()
         if not magnet:
             return
 
@@ -240,8 +242,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         base_path = _resolve_base_path(entry)
         season = _season_from_magnet(magnet)
         episode_name = _episode_filename_from_magnet(magnet)
-        movie_name = _movie_filename_from_magnet(magnet)
         torrent_hash = _hash_from_magnet(magnet)
+
+        media_parts = [
+            p for p in (res, codec, audio)
+            if p
+        ]
+
+        rename_name = clean_title
+
+        if media_parts:
+            rename_name = (
+                f"{clean_title} "
+                f"[{' • '.join(media_parts)}]"
+            )
 
         savepath = ""
         if category and base_path:
@@ -281,16 +295,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 await resp.text()  # quiet behavior
 
                 if torrent_hash and (
-                    episode_name or
-                    movie_name or
+                    rename_name or
                     season
                 ):
                     hass.async_create_task(
                         process_torrent(
                             base,
                             torrent_hash,
-                            episode_name,
-                            movie_name,
+                            rename_name,
                             season,
                         )
                     )
