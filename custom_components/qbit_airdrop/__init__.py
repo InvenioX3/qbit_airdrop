@@ -192,13 +192,42 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             return False
 
         return True
-        
+
+    async def torrent_exists(
+        base: str,
+        torrent_hash: str,
+    ) -> bool:
+        try:
+            async with session.get(
+                f"{base}/api/v2/torrents/info",
+                params={"hashes": torrent_hash},
+                timeout=10,
+            ) as resp:
+                data = await resp.json()
+
+            return bool(data)
+
+        except Exception:
+            return True
+
     async def process_pending_queue() -> None:
         while True:
 
             for torrent_hash, item in list(
                 pending_renames.items()
             ):
+                exists = await torrent_exists(
+                    item["base"],
+                    torrent_hash,
+                )
+
+                if not exists:
+                    pending_renames.pop(
+                        torrent_hash,
+                        None,
+                    )
+                    continue
+
                 ok = await process_torrent(
                     item["base"],
                     torrent_hash,
@@ -207,15 +236,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 )
 
                 if ok:
-                    pending_renames.pop(
-                        torrent_hash,
-                        None,
-                    )
-                    continue
-
-                item["attempts"] += 1
-
-                if item["attempts"] > 1440:
                     pending_renames.pop(
                         torrent_hash,
                         None,
@@ -311,9 +331,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         "base": base,
                         "rename_name": rename_name,
                         "season": season,
-                        "attempts": 0,
                     }
-                    
+                                        
         except Exception:
             pass
 
