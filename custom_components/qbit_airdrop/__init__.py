@@ -297,9 +297,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # Join base_path + category, ensure trailing slash
             sep_needed = not (base_path.endswith("/") or base_path.endswith("\\"))
             savepath = f"{base_path}{'/' if sep_needed else ''}{category}"
-
-            if season:
-                savepath = f"{savepath}/{season}"
             
             if not (savepath.endswith("/") or savepath.endswith("\\")):
                 savepath = f"{savepath}/"
