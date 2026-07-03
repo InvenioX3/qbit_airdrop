@@ -166,6 +166,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     re.I,
                 )
             )
+            
+            is_movie = (
+                not is_episode
+                and not season
+            )
 
             for f in files:
                 path = str(f.get("name", ""))
@@ -206,12 +211,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                 file_records.append(record)
                 
-                if is_episode:
+                if is_movie:
                     record["keep_candidate"] = (
                         record["video"]
                         and
                         record["matches_clean_title"]
                     )
+
+                elif is_episode:
+                    record["keep_candidate"] = (
+                        record["video"]
+                        and
+                        record["episode_token"]
+                    )
+
                 else:
                     record["keep_candidate"] = (
                         record["video"]
