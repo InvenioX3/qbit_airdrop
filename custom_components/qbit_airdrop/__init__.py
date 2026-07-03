@@ -191,7 +191,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                     "matches_clean_title": (
                         _normalize_file_title(filename)
-                        == clean_title
+                        .startswith(clean_title)
                     ),
 
                     "keep_candidate": False,
@@ -213,9 +213,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     )
 
                 _LOGGER.warning(
-                    "[QBIT] keep=%s | file=%s",
+                    "[QBIT] keep=%s | match=%s | clean=%s | norm=%s",
                     record["keep_candidate"],
-                    record["filename"],
+                    record["matches_clean_title"],
+                    clean_title,
+                    record["normalized_title"],
                 )
 
             keep_files = [
