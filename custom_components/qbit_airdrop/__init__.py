@@ -266,6 +266,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 ) as resp:
 
                     if resp.status >= 400:
+                        body = await resp.text()
+
+                        _LOGGER.warning(
+                            "[QBIT] renameFile failed | status=%s | old=%s | new=%s | body=%s",
+                            resp.status,
+                            old_path,
+                            new_path,
+                            body,
+                        )
+
                         return False
 
             if len(keep_files) == 1 and rename_name:
@@ -300,7 +310,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 ) as resp:
 
                     if resp.status >= 400:
-                        return False
+                        body = await resp.text()
+
+                        _LOGGER.warning(
+                            "[QBIT] renameFolder failed | status=%s | old=%s | new=%s | body=%s",
+                            resp.status,
+                            root_folder,
+                            folder_name,
+                            body,
+                        )
 
         except Exception:
             return False
