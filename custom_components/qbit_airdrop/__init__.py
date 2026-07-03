@@ -269,7 +269,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         body = await resp.text()
 
                         _LOGGER.warning(
-                            "[QBIT] renameFile failed | status=%s | old=%s | new=%s | body=%s",
+                            "[QBIT] renameFolder failed | status=%s | old=%s | new=%s | body=%s",
                             resp.status,
                             old_path,
                             new_path,
@@ -313,7 +313,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         body = await resp.text()
 
                         _LOGGER.warning(
-                            "[QBIT] renameFolder failed | status=%s | old=%s | new=%s | body=%s",
+                            "[QBIT] renameFile failed | status=%s | old=%s | new=%s | body=%s",
                             resp.status,
                             root_folder,
                             folder_name,
