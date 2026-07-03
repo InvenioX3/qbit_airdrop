@@ -80,6 +80,13 @@ def _normalize_file_title(name: str) -> str:
         name,
         flags=re.I,
     )
+    
+    name = re.sub(
+        r"\b(?:19|20)\d{2}(?=\s+S\d{1,2}E\d{1,3}\b)",
+        "",
+        name,
+        flags=re.I,
+    )
 
     name = re.sub(
         r"\s+",
@@ -213,11 +220,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     )
 
                 _LOGGER.warning(
-                    "[QBIT] keep=%s | match=%s | clean=%s | norm=%s",
+                    "[QBIT] keep=%s | video=%s | match=%s | file=%s",
                     record["keep_candidate"],
+                    record["video"],
                     record["matches_clean_title"],
-                    clean_title,
-                    record["normalized_title"],
+                    record["filename"],
                 )
 
             keep_files = [
