@@ -123,12 +123,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             }
 
             best = None
+            file_records = []
 
             for f in files:
                 path = str(f.get("name", ""))
-                ext = os.path.splitext(path)[1].lower()
 
-                if ext not in video_exts:
+                filename = os.path.basename(path)
+
+                ext = os.path.splitext(filename)[1].lower()
+
+                is_video = ext in video_exts
+
+                record = {
+                    "id": f.get("index"),
+                    "path": path,
+                    "filename": filename,
+                    "ext": ext,
+                    "video": is_video,
+                    "size": f.get("size", 0),
+                }
+
+                file_records.append(record)
+
+                if not is_video:
                     continue
 
                 if (
@@ -335,6 +352,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         "base": base,
                         "rename_name": rename_name,
                         "season": season,
+                        "clean_title": clean_title,
+                        "category": category,
                     }
                                         
         except Exception:
