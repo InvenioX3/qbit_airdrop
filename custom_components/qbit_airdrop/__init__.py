@@ -286,7 +286,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         rename_name = clean_title
 
-        if media_parts:
+        # Movies get metadata tags
+        if not season and media_parts:
             rename_name = (
                 f"{clean_title} "
                 f"[{' • '.join(media_parts)}]"
