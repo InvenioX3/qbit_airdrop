@@ -5,10 +5,13 @@ from urllib.parse import urlparse, parse_qs
 import asyncio
 import os
 import re
+import logging
 
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers import aiohttp_client
+
+_LOGGER = logging.getLogger(__name__)
 
 from .const import (
     DOMAIN,
@@ -62,6 +65,30 @@ def _season_from_magnet(magnet: str) -> str:
 
     return ""
     
+def _normalize_file_title(name: str) -> str:
+    name = os.path.splitext(name)[0]
+
+    name = re.sub(
+        r"[._\-]+",
+        " ",
+        name,
+    )
+
+    name = re.sub(
+        r"\b(2160p|1080p|720p|480p)\b.*$",
+        "",
+        name,
+        flags=re.I,
+    )
+
+    name = re.sub(
+        r"\s+",
+        " ",
+        name,
+    )
+
+    return name.strip()
+    
 def _hash_from_magnet(magnet: str) -> str:
     m = re.search(
         r"xt=urn:btih:([a-fA-F0-9]+)",
@@ -90,6 +117,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         torrent_hash: str,
         rename_name: str,
         season: str,
+        clean_title: str,
     ) -> bool:
 
         try:
@@ -122,7 +150,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 ".wmv",
             }
 
-            best = None
             file_records = []
 
             for f in files:
@@ -142,21 +169,45 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     "video": is_video,
                     "size": f.get("size", 0),
 
-                    "normalized_title": ...,
-                    "episode_token": ...,
-                    "matches_clean_title": ...,
-                    "keep_candidate": ...,
+                    "normalized_title": _normalize_file_title(
+                        filename
+                    ),
+
+                    "episode_token": bool(
+                        re.search(
+                            r"\bS\d{1,2}E\d{1,3}\b",
+                            filename,
+                            re.I,
+                        )
+                    ),
+
+                    "matches_clean_title": (
+                        _normalize_file_title(filename)
+                        == clean_title
+                    ),
+
+                    "keep_candidate": False,
                 }
 
                 file_records.append(record)
+                
+                if season:
+                    record["keep_candidate"] = (
+                        record["video"]
+                        and
+                        record["episode_token"]
+                    )
+                else:
+                    record["keep_candidate"] = (
+                        record["video"]
+                        and
+                        record["matches_clean_title"]
+                    )
 
-                print(
-                    f"[QBIT] "
-                    f"{record['filename']} | "
-                    f"video={record['video']} | "
-                    f"episode={record.get('episode_token')} | "
-                    f"match={record.get('matches_clean_title')} | "
-                    f"keep={record.get('keep_candidate')}"
+                _LOGGER.warning(
+                    "[QBIT] keep=%s | file=%s",
+                    record["keep_candidate"],
+                    record["filename"],
                 )
 
                 if not is_video:
@@ -270,6 +321,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     torrent_hash,
                     item["rename_name"],
                     item["season"],
+                    item["clean_title"],
                 )
 
                 if ok:
