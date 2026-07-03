@@ -141,9 +141,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     "ext": ext,
                     "video": is_video,
                     "size": f.get("size", 0),
+
+                    "normalized_title": ...,
+                    "episode_token": ...,
+                    "matches_clean_title": ...,
+                    "keep_candidate": ...,
                 }
 
                 file_records.append(record)
+
+                print(
+                    f"[QBIT] "
+                    f"{record['filename']} | "
+                    f"video={record['video']} | "
+                    f"episode={record.get('episode_token')} | "
+                    f"match={record.get('matches_clean_title')} | "
+                    f"keep={record.get('keep_candidate')}"
+                )
 
                 if not is_video:
                     continue
