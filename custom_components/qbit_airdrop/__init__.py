@@ -151,6 +151,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             }
 
             file_records = []
+            
+            is_episode = bool(
+                re.search(
+                    r"\bS\d{1,2}E\d{1,3}\b",
+                    clean_title,
+                    re.I,
+                )
+            )
 
             for f in files:
                 path = str(f.get("name", ""))
@@ -191,17 +199,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                 file_records.append(record)
                 
-                if season:
+                if is_episode:
                     record["keep_candidate"] = (
                         record["video"]
                         and
-                        record["episode_token"]
+                        record["matches_clean_title"]
                     )
                 else:
                     record["keep_candidate"] = (
                         record["video"]
                         and
-                        record["matches_clean_title"]
+                        record["episode_token"]
                     )
 
                 _LOGGER.warning(
@@ -210,19 +218,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     record["filename"],
                 )
 
-                if not is_video:
-                    continue
-
-                if (
-                    best is None or
-                    f.get("size", 0) > best.get("size", 0)
-                ):
-                    best = f
+            keep_files = [
+                r for r in file_records
+                if r["keep_candidate"]
+            ]
 
             folder_source = None
 
-            if best:
-                folder_source = best["name"]
+            if keep_files:
+                folder_source = keep_files[0]["path"]
 
             if folder_source and "/" in folder_source:
                 root_folder = folder_source.split("/", 1)[0]
@@ -242,8 +246,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     if resp.status >= 400:
                         return False
 
-            if best and rename_name:
-                old_path = best["name"]
+            if len(keep_files) == 1 and rename_name:
+                old_path = keep_files[0]["path"]
 
                 if "/" in old_path:
                     current_file = old_path.rsplit("/", 1)[1]
