@@ -233,6 +233,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         season: str,
         keep_files,
         folder_only: bool,
+        renamed_folder: str,
     ) -> bool:
 
         try:
@@ -283,6 +284,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 and rename_name
             ):
                 old_path = keep_files[0]["path"]
+                
+                if (
+                    renamed_folder
+                    and "/" in old_path
+                ):
+                    original_folder = old_path.split("/", 1)[0]
+
+                    old_path = old_path.replace(
+                        f"{original_folder}/",
+                        f"{renamed_folder}/",
+                        1,
+                    )
 
                 if "/" in old_path:
                     current_file = old_path.rsplit("/", 1)[1]
@@ -362,13 +375,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         None,
                     )
                     continue
-                    
-                _LOGGER.warning(
-                    "[QBIT] stage=metadata hash=%s",
-                    torrent_hash,
-                )
 
                 if not item["metadata_ready"]:
+                    
+                    _LOGGER.warning(
+                        "[QBIT] stage=metadata hash=%s",
+                        torrent_hash,
+                    )
 
                     files = await enumerate_files(
                         item["base"],
@@ -381,15 +394,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                     continue
 
-                _LOGGER.warning(
-                    "[QBIT] stage=classify hash=%s",
-                    torrent_hash,
-                )
-
                 if (
                     item["metadata_ready"]
                     and not item["classified"]
                 ):
+                    
+                    _LOGGER.warning(
+                        "[QBIT] stage=classify hash=%s",
+                        torrent_hash,
+                    )
 
                     item["keep_files"] = [
                         r for r in classify_files(
@@ -418,6 +431,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         item["season"],
                         item["keep_files"],
                         folder_only=True,
+                        renamed_folder=item["renamed_folder"],
+                        )
                     )
 
                     if ok:
@@ -446,7 +461,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         item["season"],
                         item["keep_files"],
                         folder_only=False,
-                    )
+                        renamed_folder=item["renamed_folder"],
+                        )
 
                     if ok:
                         item["file_done"] = True
