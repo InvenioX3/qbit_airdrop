@@ -457,7 +457,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     and len(item["keep_files"]) <= 1
                 ):
 
-                    elif len(item["keep_files"]) > 1:
+                    else if len(item["keep_files"]) > 1:
 
                         item["file_done"] = True
 
