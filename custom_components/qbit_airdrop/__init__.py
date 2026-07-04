@@ -65,36 +65,132 @@ def _season_from_magnet(magnet: str) -> str:
 
     return ""
     
-def _normalize_file_title(name: str) -> str:
-    name = os.path.splitext(name)[0]
+def _clean_title(name_raw: str) -> str:
+    name = os.path.splitext(
+        str(name_raw or "")
+    )[0]
 
-    name = re.sub(
-        r"[._\-]+",
-        " ",
+    if not name:
+        return ""
+
+    se = re.search(
+        r"\bS\d{1,2}E\d{1,3}\b",
         name,
+        re.I,
     )
 
-    name = re.sub(
-        r"\b(2160p|1080p|720p|480p)\b.*$",
+    s = re.search(
+        r"\bS\d{1,2}\b(?!-\d)",
+        name,
+        re.I,
+    )
+
+    season = re.search(
+        r"\bSeason\s+\d+(?:\s*-\s*\d+)?\b",
+        name,
+        re.I,
+    )
+
+    complete = re.search(
+        r"\b(?:Complete\s+Series|Complete\s+Season)\b",
+        name,
+        re.I,
+    )
+
+    yr = re.search(
+        r"\(?\b(?:19|20)\d{2}\b\)?",
+        name,
+        re.I,
+    )
+
+    token = None
+    token_type = None
+
+    if se:
+        token = se
+        token_type = "se"
+    elif s:
+        token = s
+        token_type = "s"
+    elif season:
+        token = season
+        token_type = "season"
+    elif complete:
+        token = complete
+        token_type = "complete"
+    elif yr:
+        token = yr
+        token_type = "year"
+
+    normalized = (
+        name
+        .replace("&amp;", "&")
+        .replace("&quot;", '"')
+        .replace("&#39;", "'")
+        .replace("&apos;", "'")
+    )
+
+    if token_type == "year":
+
+        m = re.search(
+            r"\(?\b(?:19|20)\d{2}\b\)?",
+            normalized,
+        )
+
+        if m:
+            return (
+                normalized[:m.end()]
+                .replace("(", "")
+                .replace(")", "")
+                .replace(".", " ")
+                .strip()
+            )
+
+    cut = len(name)
+
+    if token:
+        cut = token.end()
+
+    kept = normalized[:cut]
+
+    trimmed = re.sub(
+        r"[ ._-]+$",
         "",
-        name,
-        flags=re.I,
-    )
-    
-    name = re.sub(
-        r"\b(?:19|20)\d{2}(?=\s+S\d{1,2}E\d{1,3}\b)",
-        "",
-        name,
-        flags=re.I,
+        kept,
     )
 
-    name = re.sub(
+    trimmed = trimmed.replace(
+        "(",
+        "",
+    ).replace(
+        ")",
+        "",
+    )
+
+    if token_type in (
+        "se",
+        "s",
+        "season",
+        "complete",
+    ):
+        trimmed = re.sub(
+            r"\b(?:19|20)\d{2}(?=\s+(?:S\d{1,2}(?:E\d{1,3})?|Season\b))",
+            "",
+            trimmed,
+            flags=re.I,
+        )
+
+    trimmed = re.sub(
+        r'[<>:"/\\|?*]',
+        "",
+        trimmed,
+    )
+
+    return re.sub(
         r"\s+",
         " ",
-        name,
-    )
-
-    return name.strip()
+        trimmed.replace(".", " "),
+    ).strip()
     
 def _hash_from_magnet(magnet: str) -> str:
     m = re.search(
@@ -201,9 +297,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     )
                 ),
 
+                "cleaned": _clean_title(
+                    filename
+                ),
+
                 "matches_clean_title": (
-                    _normalize_file_title(filename)
-                    .startswith(clean_title)
+                    _clean_title(filename)
+                    == clean_title
                 ),
 
                 "keep_candidate": False,
@@ -220,6 +320,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     record["video"]
                     and record["episode_token"]
                 )
+
+            _LOGGER.warning(
+                "[QBIT] keep=%s | video=%s | match=%s | clean='%s' | file=%s",
+                record["keep_candidate"],
+                record["video"],
+                record["matches_clean_title"],
+                record["cleaned"],
+                filename,
+            )
 
             records.append(record)
 
