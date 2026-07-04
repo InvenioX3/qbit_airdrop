@@ -288,11 +288,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     current_file = old_path.rsplit("/", 1)[1]
                     ext = os.path.splitext(current_file)[1]
 
-                    current_folder = (
-                        folder_name
-                        if folder_source and "/" in folder_source
-                        else old_path.rsplit("/", 1)[0]
-                    )
+                    current_folder = old_path.rsplit("/", 1)[0]
 
                     new_path = (
                         f"{current_folder}/"
@@ -323,7 +319,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             body,
                         )
 
-        except Exception:
+        except Exception as e:
+            _LOGGER.exception(
+                "[QBIT] process_torrent failed: %s",
+                e,
+            )
             return False
 
         return True
