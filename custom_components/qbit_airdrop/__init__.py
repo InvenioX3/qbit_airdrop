@@ -140,81 +140,82 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         return []
         
-def classify_files(
-    files,
-    clean_title,
-    season,
-):
-    video_exts = {
-        ".mkv",
-        ".mp4",
-        ".avi",
-        ".m4v",
-        ".mov",
-        ".ts",
-        ".m2ts",
-        ".wmv",
-    }
-
-    is_episode = bool(
-        re.search(
-            r"\bS\d{1,2}E\d{1,3}\b",
-            clean_title,
-            re.I,
-        )
-    )
-
-    is_movie = (
-        not is_episode
-        and not season
-    )
-
-    records = []
-
-    for f in files:
-        path = str(f.get("name", ""))
-
-        filename = os.path.basename(path)
-
-        ext = os.path.splitext(filename)[1].lower()
-
-        record = {
-            "id": f.get("index"),
-            "path": path,
-            "filename": filename,
-            "video": ext in video_exts,
-
-            "episode_token": bool(
-                re.search(
-                    r"\bS\d{1,2}E\d{1,3}\b",
-                    filename,
-                    re.I,
-                )
-            ),
-
-            "matches_clean_title": (
-                _normalize_file_title(filename)
-                .startswith(clean_title)
-            ),
-
-            "keep_candidate": False,
+    def classify_files(
+        files,
+        clean_title,
+        season,
+    ):
+        video_exts = {
+            ".mkv",
+            ".mp4",
+            ".avi",
+            ".m4v",
+            ".mov",
+            ".ts",
+            ".m2ts",
+            ".wmv",
         }
 
-        if is_movie:
-            record["keep_candidate"] = (
-                record["video"]
-                and record["matches_clean_title"]
+        is_episode = bool(
+            re.search(
+                r"\bS\d{1,2}E\d{1,3}\b",
+                clean_title,
+                re.I,
             )
+        )
 
-        else:
-            record["keep_candidate"] = (
-                record["video"]
-                and record["episode_token"]
-            )
+        is_movie = (
+            not is_episode
+            and not season
+        )
 
-        records.append(record)
+        records = []
 
-    return records
+        for f in files:
+            path = str(f.get("name", ""))
+
+            filename = os.path.basename(path)
+
+            ext = os.path.splitext(filename)[1].lower()
+
+            record = {
+                "id": f.get("index"),
+                "path": path,
+                "filename": filename,
+                "video": ext in video_exts,
+
+                "episode_token": bool(
+                    re.search(
+                        r"\bS\d{1,2}E\d{1,3}\b",
+                        filename,
+                        re.I,
+                    )
+                ),
+
+                "matches_clean_title": (
+                    _normalize_file_title(filename)
+                    .startswith(clean_title)
+                ),
+
+                "keep_candidate": False,
+            }
+
+            if is_movie:
+                record["keep_candidate"] = (
+                    record["video"]
+                    and record["matches_clean_title"]
+                )
+
+            else:
+                record["keep_candidate"] = (
+                    record["video"]
+                    and record["episode_token"]
+                )
+
+            records.append(record)
+
+        return records
+
 
     async def process_torrent(
         base: str,
