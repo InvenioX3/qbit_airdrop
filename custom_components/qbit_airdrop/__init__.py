@@ -423,10 +423,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                     continue
 
-                if not item["folder_done"]:
+                #
+                # folder_request
+                #
+                if not item["folder_requested"]:
 
                     _LOGGER.warning(
-                        "[QBIT] stage=folder hash=%s",
+                        "[QBIT] stage=folder_request hash=%s",
                         torrent_hash,
                     )
 
@@ -437,35 +440,56 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         item["season"],
                         item["keep_files"],
                         folder_only=True,
-                        renamed_folder=item["renamed_folder"],
-                        )
+                        renamed_folder="",
+                    )
 
                     if ok:
-                        item["folder_done"] = True
-                        
-                        item["renamed_folder"] = (
-                            item["season"]
-                            if item["season"]
-                            else item["rename_name"]
-                        )
+                        item["folder_requested"] = True
 
                     continue
 
-
+                #
+                # folder_verify
+                #
                 if (
-                    not item["file_done"]
-                    and len(item["keep_files"]) > 1
+                    item["folder_requested"]
+                    and not item["folder_verified"]
                 ):
 
-                    item["file_done"] = True
+                    _LOGGER.warning(
+                        "[QBIT] stage=folder_verify hash=%s",
+                        torrent_hash,
+                    )
+
+                    files = await enumerate_files(
+                        item["base"],
+                        torrent_hash,
+                    )
+
+                    if files:
+
+                        item["files"] = files
+
+                        item["keep_files"] = [
+                            r for r in classify_files(
+                                files,
+                                item["clean_title"],
+                                item["season"],
+                            )
+                            if r["keep_candidate"]
+                        ]
+
+                        item["folder_verified"] = True
 
                     continue
 
-
-                if not item["file_done"]:
+                #
+                # file_request
+                #
+                if not item["file_requested"]:
 
                     _LOGGER.warning(
-                        "[QBIT] stage=file hash=%s",
+                        "[QBIT] stage=file_request hash=%s",
                         torrent_hash,
                     )
 
@@ -476,14 +500,44 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         item["season"],
                         item["keep_files"],
                         folder_only=False,
-                        renamed_folder=item["renamed_folder"],
+                        renamed_folder="",
                     )
 
                     if ok:
-                        item["file_done"] = True
+                        item["file_requested"] = True
 
                     continue
 
+                #
+                # file_verify
+                #
+                if (
+                    item["file_requested"]
+                    and not item["file_verified"]
+                ):
+
+                    _LOGGER.warning(
+                        "[QBIT] stage=file_verify hash=%s",
+                        torrent_hash,
+                    )
+
+                    files = await enumerate_files(
+                        item["base"],
+                        torrent_hash,
+                    )
+
+                    if files:
+                        item["file_verified"] = True
+
+                    continue
+
+                #
+                # complete
+                #
+                _LOGGER.warning(
+                    "[QBIT] stage=complete hash=%s",
+                    torrent_hash,
+                )
 
                 pending_renames.pop(
                     torrent_hash,
@@ -589,8 +643,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                         "metadata_ready": False,
                         "classified": False,
-                        "folder_done": False,
-                        "file_done": False,
+                        
+                        "folder_requested": False,
+                        "folder_verified": False,
+
+                        "file_requested": False,
+                        "file_verified": False,
 
                         "files": [],
                         "keep_files": [],
