@@ -433,7 +433,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         folder_only=True,
                         renamed_folder=item["renamed_folder"],
                         )
-                    )
 
                     if ok:
                         item["folder_done"] = True
