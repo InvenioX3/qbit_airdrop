@@ -59,7 +59,7 @@ def _season_from_magnet(magnet: str) -> str:
     if m:
         return m.group(1).upper()
 
-    m = re.search(r"\b(S\d{1,2})\b(?!-\d)", dn, re.I)
+    m = re.search(r"\b(S\d{1,2})(?:-\d{1,2})?\b", dn, re.I)
     if m:
         return m.group(1).upper()
 
@@ -582,6 +582,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         )
                         if r["keep_candidate"]
                     ]
+
+                    if not item["keep_files"]:
+
+                        _LOGGER.warning(
+                            "[QBIT] no_keep_files hash=%s",
+                            torrent_hash,
+                        )
+
+                        pending_renames.pop(
+                            torrent_hash,
+                            None,
+                        )
+
+                        continue
 
                     _LOGGER.warning(
                         "[QBIT] classify result hash=%s keep=%s",
