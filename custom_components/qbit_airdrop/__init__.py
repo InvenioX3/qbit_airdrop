@@ -419,6 +419,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 else:
                     ext = os.path.splitext(old_path)[1]
                     new_path = f"{rename_name}{ext}"
+                    
+                _LOGGER.warning(
+                    "[QBIT] rename_file hash=%s old='%s' new='%s'",
+                    torrent_hash,
+                    old_path,
+                    new_path,
+                )
 
                 async with session.post(
                     f"{base}/api/v2/torrents/renameFile",
