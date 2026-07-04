@@ -543,6 +543,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             current_base = os.path.splitext(
                                 current_file
                             )[0]
+                            
+                            _LOGGER.warning(
+                                "[QBIT] verify_file hash=%s expected='%s' current='%s'",
+                                torrent_hash,
+                                expected_name,
+                                current_base,
+                            )
 
                             if current_base == expected_name:
 
