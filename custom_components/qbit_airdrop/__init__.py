@@ -527,7 +527,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     )
 
                     if files:
-                        item["file_verified"] = True
+
+                        expected_name = item["rename_name"]
+
+                        if len(item["keep_files"]) == 1:
+
+                            current_path = files[
+                                item["keep_files"][0]["id"]
+                            ]["name"]
+
+                            current_file = os.path.basename(
+                                current_path
+                            )
+
+                            current_base = os.path.splitext(
+                                current_file
+                            )[0]
+
+                            if current_base == expected_name:
+
+                                item["file_verified"] = True
 
                     continue
 
