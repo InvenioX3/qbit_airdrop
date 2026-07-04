@@ -123,22 +123,31 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         base: str,
         torrent_hash: str,
     ):
-        files = []
+        try:
+            files = []
 
-        for _ in range(60):
-            async with session.get(
-                f"{base}/api/v2/torrents/files",
-                params={"hash": torrent_hash},
-                timeout=10,
-            ) as resp:
-                files = await resp.json()
+            for _ in range(60):
+                async with session.get(
+                    f"{base}/api/v2/torrents/files",
+                    params={"hash": torrent_hash},
+                    timeout=10,
+                ) as resp:
 
-            if files:
-                return files
+                    files = await resp.json()
 
-            await asyncio.sleep(1)
+                if files:
+                    return files
 
-        return []
+                await asyncio.sleep(1)
+
+            return []
+
+        except Exception as e:
+            _LOGGER.exception(
+                "[QBIT] enumerate_files failed: %s",
+                e,
+            )
+            return []
         
     def classify_files(
         files,
@@ -457,6 +466,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         None,
                     )
                     continue
+                    
+                _LOGGER.warning(
+                    "[QBIT] stage=metadata hash=%s",
+                    torrent_hash,
+                )
 
                 if not item["metadata_ready"]:
 
@@ -471,6 +485,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                     continue
 
+                _LOGGER.warning(
+                    "[QBIT] stage=classify hash=%s",
+                    torrent_hash,
+                )
 
                 if (
                     item["metadata_ready"]
@@ -490,6 +508,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                     continue
 
+                _LOGGER.warning(
+                    "[QBIT] stage=rename hash=%s",
+                    torrent_hash,
+                )
 
                 ok = await process_torrent(
                     item["base"],
