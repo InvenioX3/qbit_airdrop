@@ -231,127 +231,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         torrent_hash: str,
         rename_name: str,
         season: str,
-        clean_title: str,
+        keep_files,
     ) -> bool:
 
         try:
-            files = []
 
-            for _ in range(60):
-                async with session.get(
-                    f"{base}/api/v2/torrents/files",
-                    params={"hash": torrent_hash},
-                    timeout=10,
-                ) as files_resp:
-                    files = await files_resp.json()
-
-                if files:
-                    break
-
-                await asyncio.sleep(1)
-
-            if not files:
+            if not keep_files:
                 return False
-
-            video_exts = {
-                ".mkv",
-                ".mp4",
-                ".avi",
-                ".m4v",
-                ".mov",
-                ".ts",
-                ".m2ts",
-                ".wmv",
-            }
-
-            file_records = []
             
-            is_episode = bool(
-                re.search(
-                    r"\bS\d{1,2}E\d{1,3}\b",
-                    clean_title,
-                    re.I,
-                )
-            )
-            
-            is_movie = (
-                not is_episode
-                and not season
-            )
-
-            for f in files:
-                path = str(f.get("name", ""))
-
-                filename = os.path.basename(path)
-
-                ext = os.path.splitext(filename)[1].lower()
-
-                is_video = ext in video_exts
-
-                record = {
-                    "id": f.get("index"),
-                    "path": path,
-                    "filename": filename,
-                    "ext": ext,
-                    "video": is_video,
-                    "size": f.get("size", 0),
-
-                    "normalized_title": _normalize_file_title(
-                        filename
-                    ),
-
-                    "episode_token": bool(
-                        re.search(
-                            r"\bS\d{1,2}E\d{1,3}\b",
-                            filename,
-                            re.I,
-                        )
-                    ),
-
-                    "matches_clean_title": (
-                        _normalize_file_title(filename)
-                        .startswith(clean_title)
-                    ),
-
-                    "keep_candidate": False,
-                }
-
-                file_records.append(record)
-                
-                if is_movie:
-                    record["keep_candidate"] = (
-                        record["video"]
-                        and
-                        record["matches_clean_title"]
-                    )
-
-                elif is_episode:
-                    record["keep_candidate"] = (
-                        record["video"]
-                        and
-                        record["episode_token"]
-                    )
-
-                else:
-                    record["keep_candidate"] = (
-                        record["video"]
-                        and
-                        record["episode_token"]
-                    )
-
-                _LOGGER.warning(
-                    "[QBIT] keep=%s | video=%s | match=%s | file=%s",
-                    record["keep_candidate"],
-                    record["video"],
-                    record["matches_clean_title"],
-                    record["filename"],
-                )
-
-            keep_files = [
-                r for r in file_records
-                if r["keep_candidate"]
-            ]
-
             folder_source = None
 
             if keep_files:
@@ -378,8 +265,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         _LOGGER.warning(
                             "[QBIT] renameFolder failed | status=%s | old=%s | new=%s | body=%s",
                             resp.status,
-                            old_path,
-                            new_path,
+                            root_folder,
+                            folder_name,
                             body,
                         )
 
@@ -422,8 +309,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         _LOGGER.warning(
                             "[QBIT] renameFile failed | status=%s | old=%s | new=%s | body=%s",
                             resp.status,
-                            root_folder,
-                            folder_name,
+                            old_path,
+                            new_path,
                             body,
                         )
 
@@ -518,7 +405,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     torrent_hash,
                     item["rename_name"],
                     item["season"],
-                    item["clean_title"],
+                    item["keep_files"],
                 )
 
                 if ok:
