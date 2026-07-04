@@ -118,6 +118,103 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     session = aiohttp_client.async_get_clientsession(hass)
     pending_renames: dict[str, dict] = {}
+    
+    async def enumerate_files(
+        base: str,
+        torrent_hash: str,
+    ):
+        files = []
+
+        for _ in range(60):
+            async with session.get(
+                f"{base}/api/v2/torrents/files",
+                params={"hash": torrent_hash},
+                timeout=10,
+            ) as resp:
+                files = await resp.json()
+
+            if files:
+                return files
+
+            await asyncio.sleep(1)
+
+        return []
+        
+def classify_files(
+    files,
+    clean_title,
+    season,
+):
+    video_exts = {
+        ".mkv",
+        ".mp4",
+        ".avi",
+        ".m4v",
+        ".mov",
+        ".ts",
+        ".m2ts",
+        ".wmv",
+    }
+
+    is_episode = bool(
+        re.search(
+            r"\bS\d{1,2}E\d{1,3}\b",
+            clean_title,
+            re.I,
+        )
+    )
+
+    is_movie = (
+        not is_episode
+        and not season
+    )
+
+    records = []
+
+    for f in files:
+        path = str(f.get("name", ""))
+
+        filename = os.path.basename(path)
+
+        ext = os.path.splitext(filename)[1].lower()
+
+        record = {
+            "id": f.get("index"),
+            "path": path,
+            "filename": filename,
+            "video": ext in video_exts,
+
+            "episode_token": bool(
+                re.search(
+                    r"\bS\d{1,2}E\d{1,3}\b",
+                    filename,
+                    re.I,
+                )
+            ),
+
+            "matches_clean_title": (
+                _normalize_file_title(filename)
+                .startswith(clean_title)
+            ),
+
+            "keep_candidate": False,
+        }
+
+        if is_movie:
+            record["keep_candidate"] = (
+                record["video"]
+                and record["matches_clean_title"]
+            )
+
+        else:
+            record["keep_candidate"] = (
+                record["video"]
+                and record["episode_token"]
+            )
+
+        records.append(record)
+
+    return records
 
     async def process_torrent(
         base: str,
@@ -360,6 +457,39 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     )
                     continue
 
+                if not item["metadata_ready"]:
+
+                    files = await enumerate_files(
+                        item["base"],
+                        torrent_hash,
+                    )
+
+                    if files:
+                        item["files"] = files
+                        item["metadata_ready"] = True
+
+                    continue
+
+
+                if (
+                    item["metadata_ready"]
+                    and not item["classified"]
+                ):
+
+                    item["keep_files"] = [
+                        r for r in classify_files(
+                            item["files"],
+                            item["clean_title"],
+                            item["season"],
+                        )
+                        if r["keep_candidate"]
+                    ]
+
+                    item["classified"] = True
+
+                    continue
+
+
                 ok = await process_torrent(
                     item["base"],
                     torrent_hash,
@@ -464,6 +594,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         "season": season,
                         "clean_title": clean_title,
                         "category": category,
+
+                        "metadata_ready": False,
+                        "classified": False,
+                        "folder_done": False,
+                        "file_done": False,
+
+                        "files": [],
+                        "keep_files": [],
                     }
                                         
         except Exception:
