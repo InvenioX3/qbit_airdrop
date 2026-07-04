@@ -454,14 +454,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                 if (
                     not item["file_done"]
-                    and len(item["keep_files"]) <= 1
+                    and len(item["keep_files"]) > 1
                 ):
 
-                    else if len(item["keep_files"]) > 1:
+                    item["file_done"] = True
 
-                        item["file_done"] = True
+                    continue
 
-                        continue
+
+                if not item["file_done"]:
 
                     _LOGGER.warning(
                         "[QBIT] stage=file hash=%s",
@@ -476,7 +477,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         item["keep_files"],
                         folder_only=False,
                         renamed_folder=item["renamed_folder"],
-                        )
+                    )
 
                     if ok:
                         item["file_done"] = True
