@@ -413,6 +413,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         if r["keep_candidate"]
                     ]
 
+                    _LOGGER.warning(
+                        "[QBIT] classify result hash=%s keep=%s",
+                        torrent_hash,
+                        len(item["keep_files"]),
+                    )
+
                     item["classified"] = True
 
                     continue
@@ -446,7 +452,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     continue
 
 
-                if not item["file_done"]:
+                if (
+                    not item["file_done"]
+                    and len(item["keep_files"]) <= 1
+                ):
+
+                    elif len(item["keep_files"]) > 1:
+
+                        item["file_done"] = True
+
+                        continue
 
                     _LOGGER.warning(
                         "[QBIT] stage=file hash=%s",
