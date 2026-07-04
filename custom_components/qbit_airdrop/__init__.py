@@ -232,6 +232,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         rename_name: str,
         season: str,
         keep_files,
+        folder_only: bool,
     ) -> bool:
 
         try:
@@ -244,7 +245,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if keep_files:
                 folder_source = keep_files[0]["path"]
 
-            if folder_source and "/" in folder_source:
+            if (
+                folder_only
+                and folder_source
+                and "/" in folder_source
+            ):
                 root_folder = folder_source.split("/", 1)[0]
 
                 folder_name = season if season else rename_name
@@ -272,7 +277,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                         return False
 
-            if len(keep_files) == 1 and rename_name:
+            if (
+                not folder_only
+                and len(keep_files) == 1
+                and rename_name
+            ):
                 old_path = keep_files[0]["path"]
 
                 if "/" in old_path:
@@ -395,24 +404,60 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                     continue
 
-                _LOGGER.warning(
-                    "[QBIT] stage=rename hash=%s",
-                    torrent_hash,
-                )
+                if not item["folder_done"]:
 
-                ok = await process_torrent(
-                    item["base"],
-                    torrent_hash,
-                    item["rename_name"],
-                    item["season"],
-                    item["keep_files"],
-                )
-
-                if ok:
-                    pending_renames.pop(
+                    _LOGGER.warning(
+                        "[QBIT] stage=folder hash=%s",
                         torrent_hash,
-                        None,
                     )
+
+                    ok = await process_torrent(
+                        item["base"],
+                        torrent_hash,
+                        item["rename_name"],
+                        item["season"],
+                        item["keep_files"],
+                        folder_only=True,
+                    )
+
+                    if ok:
+                        item["folder_done"] = True
+                        
+                        item["renamed_folder"] = (
+                            item["season"]
+                            if item["season"]
+                            else item["rename_name"]
+                        )
+
+                    continue
+
+
+                if not item["file_done"]:
+
+                    _LOGGER.warning(
+                        "[QBIT] stage=file hash=%s",
+                        torrent_hash,
+                    )
+
+                    ok = await process_torrent(
+                        item["base"],
+                        torrent_hash,
+                        item["rename_name"],
+                        item["season"],
+                        item["keep_files"],
+                        folder_only=False,
+                    )
+
+                    if ok:
+                        item["file_done"] = True
+
+                    continue
+
+
+                pending_renames.pop(
+                    torrent_hash,
+                    None,
+                )
 
             await asyncio.sleep(15)
             
@@ -512,6 +557,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                         "files": [],
                         "keep_files": [],
+                        "renamed_folder": "",
                     }
                                         
         except Exception:
