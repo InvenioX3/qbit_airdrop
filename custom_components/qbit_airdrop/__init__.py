@@ -543,6 +543,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     rename_name or
                     season
                 ):
+                    
+                    _LOGGER.warning(
+                        "[QBIT] queue_create hash=%s",
+                        torrent_hash,
+                    )
+                    
                     pending_renames[torrent_hash] = {
                         "base": base,
                         "rename_name": rename_name,
