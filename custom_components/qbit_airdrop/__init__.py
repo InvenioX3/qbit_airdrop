@@ -428,7 +428,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         )
 
                         if title in name:
+
+                            _LOGGER.warning(
+                                "[QBIT] title_match title='%s' file='%s'",
+                                title,
+                                name,
+                            )
+
                             matching.append(f)
+
+                    _LOGGER.warning(
+                        "[QBIT] title_scan title='%s' matches=%s files=%s",
+                        title,
+                        len(matching),
+                        len(video_files),
+                    )
 
                     if item["token_type"] in (
                         "season",
@@ -700,14 +714,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 #
                 # complete
                 #
-                _LOGGER.warning(
-                    "[QBIT] stage=resume hash=%s",
+                ok = await resume_torrent(
+                    item["base"],
                     torrent_hash,
                 )
 
-                await resume_torrent(
-                    item["base"],
+                _LOGGER.warning(
+                    "[QBIT] resume_result hash=%s ok=%s",
                     torrent_hash,
+                    ok,
                 )
 
                 pending_renames.pop(
