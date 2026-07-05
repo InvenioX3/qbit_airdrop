@@ -414,8 +414,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 folder_source = keep_files[0]["path"]
 
             if (
-                folder_only
-                and folder_source
+                folder_source
                 and "/" in folder_source
             ):
                 root_folder = folder_source.split("/", 1)[0]
@@ -695,10 +694,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     ok = await process_torrent(
                         item["base"],
                         torrent_hash,
-                        item["rename_name"],
-                        item["season"],
                         item["keep_files"],
-                        folder_only=True,
+                        item["folder_old"],
+                        item["folder_new"],
                     )
 
                     if ok:
