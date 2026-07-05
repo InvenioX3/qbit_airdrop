@@ -311,6 +311,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 f"{base}/api/v2/torrents/resume",
             )
 
+            _LOGGER.warning(
+                "[QBIT] resume payload=%s",
+                {
+                    "hash": torrent_hash,
+                },
+            )
+
             async with session.post(
                 f"{base}/api/v2/torrents/resume",
                 data={
