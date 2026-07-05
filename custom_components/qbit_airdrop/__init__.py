@@ -676,22 +676,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                 .split("/", 1)[0]
                             )
 
-                            if item["token_type"] in (
-                                "season",
-                                "complete",
-                            ):
+                        if item["token_type"] in (
+                            "season",
+                            "complete",
+                        ):
 
-                                item["folder_new"] = (
-                                    item["category"]
-                                )
+                            item["folder_new"] = (
+                                item["category"]
+                            )
 
-                            else:
+                        else:
 
-                                item["folder_new"] = (
-                                    item["season"]
-                                    if item["season"]
-                                    else item["rename_name"]
-                                )
+                            item["folder_new"] = (
+                                item["season"]
+                                if item["season"]
+                                else item["rename_name"]
+                            )
 
                         if len(item["keep_files"]) == 1:
 
