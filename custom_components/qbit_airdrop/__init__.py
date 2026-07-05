@@ -372,6 +372,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             )
 
                     item["keep_files"] = video_files
+                    
+                    _LOGGER.warning(
+                        "[QBIT] video_files=%s continue",
+                        len(video_files),
+                    )
 
                     continue
 
@@ -626,6 +631,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 timeout=20,
             ) as resp:
                 await resp.text()  # quiet behavior
+                
+                for _ in range(50):
+
+                    if await torrent_exists(
+                        base,
+                        torrent_hash,
+                    ):
+                        break
+
+                    await asyncio.sleep(0.2)
 
                 if torrent_hash and (
                     rename_name or
