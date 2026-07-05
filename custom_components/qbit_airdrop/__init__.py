@@ -309,11 +309,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     if files:
                         item["files"] = files
                         item["metadata_ready"] = True
-                        
-                    video_files = [
-                        f for f in enumerate_files_metadata(files)
-                        if f["video"]
-                    ]
+
+                video_files = [
+                    f
+                    for f in enumerate_files_metadata(
+                        item["files"]
+                    )
+                    if f["video"]
+                ]
 
                 if video_files:
 
@@ -507,6 +510,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         magnet = (data.get("magnet") or "").strip()
         category = (data.get("category") or "").strip()
         clean_title = (data.get("clean_title") or "").strip()
+        
+        rename_name = (
+            data.get("rename_name")
+            or ""
+        ).strip()
 
         token_type = (
             data.get("token_type")
@@ -530,25 +538,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
         torrent_hash = _hash_from_magnet(magnet)
 
-        media_parts = [
-            p for p in (res, codec, audio)
-            if p
-        ]
-
-        clean_title = re.sub(
+        rename_name = re.sub(
             r'[<>:"/\\|?*]',
             "",
-            clean_title,
+            rename_name,
         )
-
-        rename_name = clean_title
-
-        # Movies get metadata tags
-        if not season and media_parts:
-            rename_name = (
-                f"{clean_title} "
-                f"[{' • '.join(media_parts)}]"
-            )
 
         savepath = ""
         if category and base_path:
