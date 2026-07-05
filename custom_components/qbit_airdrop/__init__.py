@@ -435,54 +435,51 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                     candidates = []
 
+                episode_match = re.search(
+                    r"\bS\d{1,2}E\d{1,3}\b",
+                    item["rename_name"],
+                    re.I,
+                )
+
+                if episode_match:
+
+                    episode_token = (
+                        episode_match.group(0)
+                        .lower()
+                    )
+
+                    candidates = [
+                        f
+                        for f in video_files
+                        if episode_token in f["filename"].lower()
+                    ]
+
+                else:
+
                     title = (
                         item["clean_title"]
                         .lower()
                     )
 
-                    matching = []
+                    candidates = [
+                        f
+                        for f in video_files
+                        if title in f["filename"].lower()
+                    ]
 
-                    for f in video_files:
+                    if len(candidates) > 1:
 
-                        name = (
-                            f["filename"]
-                            .lower()
-                        )
-
-                        if title in name:
-
-                            _LOGGER.warning(
-                                "[QBIT] title_match title='%s' file='%s'",
-                                title,
-                                name,
-                            )
-
-                            matching.append(f)
-
-                    _LOGGER.warning(
-                        "[QBIT] title_scan title='%s' matches=%s files=%s",
-                        title,
-                        len(matching),
-                        len(video_files),
-                    )
-
-                    if item["token_type"] in (
-                        "season",
-                        "complete",
-                    ):
-
-                        candidates = matching
-
-                    else:
-
-                        candidates = (
-                            [max(
-                                matching,
+                        candidates = [
+                            max(
+                                candidates,
                                 key=lambda x: x["size"],
-                            )]
-                            if matching
-                            else []
-                        )
+                            )
+                        ]
+
+                _LOGGER.warning(
+                    "[QBIT] candidates=%s",
+                    [f["filename"] for f in candidates],
+                )
 
                     item["keep_files"] = candidates
                     
