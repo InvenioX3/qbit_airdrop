@@ -722,7 +722,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     async def add_magnet(call: ServiceCall) -> None:
+        
         data = call.data or {}
+        
+        _LOGGER.warning(
+            "[QBIT] service_data=%s",
+            dict(data),
+        )
+        
         magnet = (data.get("magnet") or "").strip()
         category = (data.get("category") or "").strip()
         clean_title = (data.get("clean_title") or "").strip()
