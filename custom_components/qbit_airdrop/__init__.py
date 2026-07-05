@@ -371,10 +371,49 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             )
 
                     item["keep_files"] = video_files
-                    
+
                     _LOGGER.warning(
-                        "[QBIT] video_files=%s continue",
+                        "[QBIT] video_files=%s",
                         len(video_files),
+                    )
+
+                #
+                # determine_keep_files
+                #
+
+                if (
+                    item["metadata_ready"]
+                    and not item["keep_files"]
+                ):
+
+                    candidates = []
+
+                    title = (
+                        item["clean_title"]
+                        .lower()
+                    )
+
+                    for f in video_files:
+
+                        name = (
+                            f["filename"]
+                            .lower()
+                        )
+
+                        if "sample" in name:
+                            continue
+
+                        if "featurette" in name:
+                            continue
+
+                        if title in name:
+                            candidates.append(f)
+
+                    item["keep_files"] = candidates
+
+                    _LOGGER.warning(
+                        "[QBIT] keep_files=%s",
+                        len(candidates),
                     )
 
                     continue
@@ -635,26 +674,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         "base": base,
 
                         "rename_name": rename_name,
-
+                        "clean_title": clean_title,
                         "category": category,
-
                         "metadata_ready": False,
-                        
                         "priorities_requested": False,
                         "priorities_verified": False,
-                        
                         "folder_requested": False,
                         "folder_verified": False,
-
                         "file_requested": False,
                         "file_verified": False,
-
                         "files": [],
                         "keep_files": [],
-
                         "folder_old": "",
                         "folder_new": "",
-
                         "file_old": "",
                         "file_new": "",
                     }
