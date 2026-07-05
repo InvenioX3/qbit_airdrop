@@ -711,6 +711,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                     if ok:
 
+                        if (
+                            item["folder_old"]
+                            and item["file_old"]
+                        ):
+                            item["file_old"] = (
+                                item["file_old"]
+                                .replace(
+                                    item["folder_old"],
+                                    item["folder_new"],
+                                    1,
+                                )
+                            )
+
+                        if (
+                            item["folder_old"]
+                            and item["file_new"]
+                        ):
+                            item["file_new"] = (
+                                item["file_new"]
+                                .replace(
+                                    item["folder_old"],
+                                    item["folder_new"],
+                                    1,
+                                )
+                            )
+
                         item["folder_requested"] = True
 
                     continue
@@ -729,27 +755,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         torrent_hash,
                     )
 
-                    files = await enumerate_files(
-                        item["base"],
-                        torrent_hash,
-                    )
-
-                    if files:
-
-                        if item["folder_old"]:
-                            pass
-
-                        item["folder_verified"] = True
-
-                        _LOGGER.warning(
-                            "[QBIT] folder_verified "
-                            "hash=%s "
-                            "file_old='%s' "
-                            "file_new='%s'",
-                            torrent_hash,
-                            item["file_old"],
-                            item["file_new"],
-                        )
+                    item["folder_verified"] = True
 
                     continue
 
@@ -775,7 +781,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                     if ok:
                         item["file_requested"] = True
-                        item["file_verified"] = True
 
                     continue
 
@@ -923,7 +928,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         "folder_verified": False,
 
                         "file_requested": False,
-                        "file_verified": False,
 
                         "files": [],
                         "keep_files": [],
