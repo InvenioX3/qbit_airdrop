@@ -854,6 +854,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             sep_needed = not (base_path.endswith("/") or base_path.endswith("\\"))
             savepath = f"{base_path}{'/' if sep_needed else ''}{category}"
             
+            # Single episode torrents without folders
+            #
+            token_type = _analyze_title(clean_title)["token_type"]
+
+            if (
+                season
+                and token_type == "se"
+            ):
+                savepath = f"{savepath}/{season}"
+            
             if not (savepath.endswith("/") or savepath.endswith("\\")):
                 savepath = f"{savepath}/"
             try:
