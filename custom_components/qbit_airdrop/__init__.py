@@ -376,10 +376,45 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     continue
 
                 #
+                # priorities_request
+                #
+                if (
+                    item["metadata_ready"]
+                    and not item["priorities_requested"]
+                ):
+
+                    _LOGGER.warning(
+                        "[QBIT] stage=priorities_request hash=%s",
+                        torrent_hash,
+                    )
+
+                    item["priorities_requested"] = True
+
+                    continue
+
+                #
+                # priorities_verify
+                #
+                if (
+                    item["priorities_requested"]
+                    and not item["priorities_verified"]
+                ):
+
+                    _LOGGER.warning(
+                        "[QBIT] stage=priorities_verify hash=%s",
+                        torrent_hash,
+                    )
+
+                    item["priorities_verified"] = True
+
+                    continue
+
+                #
                 # folder_request
                 #
                 if (
-                    item["folder_old"]
+                    item["priorities_verified"]
+                    and item["folder_old"]
                     and not item["folder_requested"]
                 ):
 
@@ -591,17 +626,31 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                     try:
 
-                        await session.post(
+                        async with session.post(
                             f"{base}/api/v2/torrents/setStopCondition",
                             data={
                                 "hashes": torrent_hash,
                                 "stopCondition": "MetadataReceived",
                             },
                             timeout=10,
-                        )
+                        ) as resp:
 
-                    except Exception:
-                        pass
+                            body = await resp.text()
+
+                            _LOGGER.warning(
+                                "[QBIT] setStopCondition "
+                                "status=%s "
+                                "body=%s",
+                                resp.status,
+                                body,
+                            )
+
+                    except Exception as e:
+
+                        _LOGGER.exception(
+                            "[QBIT] setStopCondition failed: %s",
+                            e,
+                        )
 
                 if torrent_hash and (
                     rename_name or
@@ -624,6 +673,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         "token_type": token_type,
 
                         "metadata_ready": False,
+                        
+                        "priorities_requested": False,
+                        "priorities_verified": False,
                         
                         "folder_requested": False,
                         "folder_verified": False,
