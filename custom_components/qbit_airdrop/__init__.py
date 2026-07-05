@@ -198,7 +198,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             body,
                         )
 
-                    return False
+                        return False
 
         except Exception as e:
             _LOGGER.exception(
@@ -329,11 +329,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             return True
             
     async def process_pending_queue() -> None:
+        
+        _LOGGER.warning(
+            "[QBIT] queue_processor_started"
+        )
+
+        
         while True:
 
-            for torrent_hash, item in list(
-                pending_renames.items()
-            ):
+            try:
+
+                for torrent_hash, item in list(
+                    pending_renames.items()
+                ):
                 
                 _LOGGER.warning(
                     "[QBIT] queue_tick hash=%s",
@@ -694,6 +702,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     torrent_hash,
                     None,
                 )
+                
+            except Exception as e:
+
+                _LOGGER.exception(
+                    "[QBIT] queue_worker_crashed: %s",
+                    e,
+                )
 
             await asyncio.sleep(1)
             
@@ -820,6 +835,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         "file_old": "",
                         "file_new": "",
                     }
+                    
+                    _LOGGER.warning(
+                        "[QBIT] queue_size=%s",
+                        len(pending_renames),
+                    )
                     
                     _LOGGER.warning(
                         "[QBIT] queue_added hash=%s",
