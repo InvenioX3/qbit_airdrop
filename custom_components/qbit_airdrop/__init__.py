@@ -651,25 +651,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                 keep["filename"]
                             )[1]
 
-                            if "/" in keep["path"]:
-
-                                current_folder = keep["path"].rsplit(
-                                    "/",
-                                    1,
-                                )[0]
-
-                                item["file_new"] = (
-                                    f"{current_folder}/"
-                                    f"{item['rename_name']}"
-                                    f"{ext}"
-                                )
-
-                            else:
-
-                                item["file_new"] = (
-                                    f"{item['rename_name']}"
-                                    f"{ext}"
-                                )
+                            item["file_ext"] = ext
 
                         _LOGGER.warning(
                             "[QBIT] targets hash=%s "
@@ -754,6 +736,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         "[QBIT] stage=folder_verify hash=%s",
                         torrent_hash,
                     )
+
+                if (
+                    len(item["keep_files"]) == 1
+                    and not item["file_new"]
+                ):
+
+                    if item["folder_new"]:
+
+                        item["file_new"] = (
+                            f"{item['folder_new']}/"
+                            f"{item['rename_name']}"
+                            f"{item['file_ext']}"
+                        )
+
+                    else:
+
+                        item["file_new"] = (
+                            f"{item['rename_name']}"
+                            f"{item['file_ext']}"
+                        )
 
                     item["folder_verified"] = True
 
@@ -937,6 +939,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                         "file_old": "",
                         "file_new": "",
+                        "file_ext": "",
                     }
                                         
         except Exception:
