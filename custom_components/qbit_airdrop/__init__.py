@@ -276,30 +276,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception:
             return True
             
-    async def torrent_state(
-        base: str,
-        torrent_hash: str,
-    ):
-        try:
-
-            async with session.get(
-                f"{base}/api/v2/torrents/info",
-                params={
-                    "hashes": torrent_hash,
-                },
-                timeout=10,
-            ) as resp:
-
-                data = await resp.json()
-
-            if data:
-                return data[0].get("state")
-
-            return None
-
-        except Exception:
-            return None
-
     async def process_pending_queue() -> None:
         while True:
 
@@ -329,16 +305,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     _LOGGER.warning(
                         "[QBIT] stage=metadata hash=%s",
                         torrent_hash,
-                    )
-                    
-                    state = await torrent_state(
-                        item["base"],
-                        torrent_hash,
-                    )
-
-                    _LOGGER.warning(
-                        "[QBIT] state=%s",
-                        state,
                     )
 
                     files = await enumerate_files(
@@ -631,7 +597,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Add magnet (include category/savepath if we have them)
         form = {
             "urls": magnet,
-            "stop_condition": "MetadataReceived",
         }
 
         if category:
@@ -647,14 +612,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 timeout=20,
             ) as resp:
 
-                body = await resp.text()
-
-                _LOGGER.warning(
-                    "[QBIT] add status=%s body=%s payload=%s",
-                    resp.status,
-                    body,
-                    form,
-                )
+                await resp.text()
                 
                 for _ in range(50):
 
