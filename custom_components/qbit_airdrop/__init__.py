@@ -727,6 +727,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         base_path = _resolve_base_path(entry)
 
         torrent_hash = _hash_from_magnet(magnet)
+        
+        _LOGGER.warning(
+            "[QBIT] hash=%s",
+            torrent_hash,
+        )
 
         rename_name = re.sub(
             r'[<>:"/\\|?*]',
@@ -764,7 +769,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if savepath:
             form["savepath"] = savepath
 
-        try:
+        except Exception as e:
+
+            _LOGGER.exception(
+                "[QBIT] add_magnet failed: %s",
+                e,
+            )
+            
             async with session.post(
                 f"{base}/api/v2/torrents/add",
                 data=form,
@@ -782,6 +793,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         break
 
                     await asyncio.sleep(0.2)
+                    
+                    _LOGGER.warning(
+                        "[QBIT] queue_gate hash=%s rename_name='%s'",
+                        torrent_hash,
+                        rename_name,
+                    )
 
                 if torrent_hash and rename_name:
                     
@@ -828,8 +845,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         torrent_hash,
                     )
                                         
-        except Exception:
-            pass
+        except Exception as e:
+
+            _LOGGER.exception(
+                "[QBIT] add_magnet failed: %s",
+                e,
+            )
 
     async def reload_entry(call: ServiceCall) -> None:
         await hass.config_entries.async_reload(entry.entry_id)
