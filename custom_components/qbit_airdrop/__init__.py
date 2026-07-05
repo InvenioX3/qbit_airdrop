@@ -314,6 +314,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 timeout=10,
             ) as resp:
 
+                body = await resp.text()
+
+                _LOGGER.warning(
+                    "[QBIT] resume status=%s body=%s hash=%s",
+                    resp.status,
+                    body,
+                    torrent_hash,
+                )
+
                 return resp.status < 400
 
         except Exception as e:
@@ -732,9 +741,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
             await asyncio.sleep(1)
             
-    hass.async_create_task(
+    queue_task = hass.async_create_task(
         process_pending_queue()
     )
+
+    hass.data.setdefault(DOMAIN, {})
+    hass.data[DOMAIN]["queue_task"] = queue_task
 
     async def add_magnet(call: ServiceCall) -> None:
         
@@ -907,6 +919,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    
+    task = (
+        hass.data
+        .get(DOMAIN, {})
+        .get("queue_task")
+    )
+
+    if task:
+        task.cancel()
+    
     try:
         hass.services.async_remove(DOMAIN, "add_magnet")
         hass.services.async_remove(DOMAIN, "reload_entry")
