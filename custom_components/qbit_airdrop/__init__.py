@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Tuple
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse
 import asyncio
 import os
 import re
@@ -46,7 +46,6 @@ def _resolve_base_path(entry: ConfigEntry) -> str:
     base_path = (d.get(CONF_BASE_PATH) or "").strip()
     return base_path
     
-def _season_from_magnet(magnet: str) -> str:
     try:
         query = magnet.split("?", 1)[1]
         dn = parse_qs(query).get("dn", [""])[0]
@@ -64,194 +63,7 @@ def _season_from_magnet(magnet: str) -> str:
         return m.group(1).upper()
 
     return ""
-    
-def _clean_title(name_raw: str) -> str:
-    name = os.path.splitext(
-        str(name_raw or "")
-    )[0]
 
-    if not name:
-        return ""
-
-    se = re.search(
-        r"\bS\d{1,2}E\d{1,3}\b",
-        name,
-        re.I,
-    )
-
-    s = re.search(
-        r"\bS\d{1,2}\b(?!-\d)",
-        name,
-        re.I,
-    )
-
-    season = re.search(
-        r"\bSeason\s+\d+(?:\s*-\s*\d+)?\b",
-        name,
-        re.I,
-    )
-
-    complete = re.search(
-        r"\b(?:Complete\s+Series|Complete\s+Season)\b",
-        name,
-        re.I,
-    )
-
-    yr = re.search(
-        r"\(?\b(?:19|20)\d{2}\b\)?",
-        name,
-        re.I,
-    )
-
-    token = None
-    token_type = None
-
-    if se:
-        token = se
-        token_type = "se"
-    elif s:
-        token = s
-        token_type = "s"
-    elif season:
-        token = season
-        token_type = "season"
-    elif complete:
-        token = complete
-        token_type = "complete"
-    elif yr:
-        token = yr
-        token_type = "year"
-
-    normalized = (
-        name
-        .replace("&amp;", "&")
-        .replace("&quot;", '"')
-        .replace("&#39;", "'")
-        .replace("&apos;", "'")
-    )
-
-    if token_type == "year":
-
-        m = re.search(
-            r"\(?\b(?:19|20)\d{2}\b\)?",
-            normalized,
-        )
-
-        if m:
-            return (
-                normalized[:m.end()]
-                .replace("(", "")
-                .replace(")", "")
-                .replace(".", " ")
-                .strip()
-            )
-
-    cut = len(name)
-
-    if token:
-        cut = token.end()
-
-    kept = normalized[:cut]
-
-    trimmed = re.sub(
-        r"[ ._-]+$",
-        "",
-        kept,
-    )
-
-    trimmed = trimmed.replace(
-        "(",
-        "",
-    ).replace(
-        ")",
-        "",
-    )
-
-    if token_type in (
-        "se",
-        "s",
-        "season",
-        "complete",
-    ):
-        trimmed = re.sub(
-            r"\b(?:19|20)\d{2}(?=\s+(?:S\d{1,2}(?:E\d{1,3})?|Season\b))",
-            "",
-            trimmed,
-            flags=re.I,
-        )
-
-    trimmed = re.sub(
-        r'[<>:"/\\|?*]',
-        "",
-        trimmed,
-    )
-
-    return re.sub(
-        r"\s+",
-        " ",
-        trimmed.replace(".", " "),
-    ).strip()
-    
-def _analyze_title(name_raw: str):
-
-    name = os.path.splitext(
-        str(name_raw or "")
-    )[0]
-
-    if not name:
-        return {
-            "token_type": None,
-        }
-
-    se = re.search(
-        r"\bS\d{1,2}E\d{1,3}\b",
-        name,
-        re.I,
-    )
-
-    s = re.search(
-        r"\bS\d{1,2}\b(?!-\d)",
-        name,
-        re.I,
-    )
-
-    season = re.search(
-        r"\bSeason\s+\d+(?:\s*-\s*\d+)?\b",
-        name,
-        re.I,
-    )
-
-    complete = re.search(
-        r"\b(?:Complete\s+Series|Complete\s+Season)\b",
-        name,
-        re.I,
-    )
-
-    yr = re.search(
-        r"\(?\b(?:19|20)\d{2}\b\)?",
-        name,
-        re.I,
-    )
-
-    if se:
-        return {"token_type": "se"}
-
-    if s:
-        return {"token_type": "s"}
-
-    if season:
-        return {"token_type": "season"}
-
-    if complete:
-        return {"token_type": "complete"}
-
-    if yr:
-        return {"token_type": "year"}
-
-    return {
-        "token_type": None,
-    }
-    
 def _hash_from_magnet(magnet: str) -> str:
     m = re.search(
         r"xt=urn:btih:([a-fA-F0-9]+)",
@@ -305,11 +117,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
             return []
         
-    def classify_files(
-        files,
-        clean_title,
-        season,
-    ):
+    def classify_files(files):
         video_exts = {
             ".mkv",
             ".mp4",
@@ -321,76 +129,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             ".wmv",
         }
 
-        is_episode = bool(
-            re.search(
-                r"\bS\d{1,2}E\d{1,3}\b",
-                clean_title,
-                re.I,
-            )
-        )
-
-        is_movie = (
-            not is_episode
-            and not season
-        )
-
         records = []
 
         for f in files:
             path = str(f.get("name", ""))
-
             filename = os.path.basename(path)
 
-            ext = os.path.splitext(filename)[1].lower()
-
-            record = {
-                "id": f.get("index"),
-                "path": path,
-                "filename": filename,
-                "video": ext in video_exts,
-
-                "episode_token": bool(
-                    re.search(
-                        r"\bS\d{1,2}E\d{1,3}\b",
-                        filename,
-                        re.I,
-                    )
-                ),
-
-                "cleaned": _clean_title(
-                    filename
-                ),
-
-                "matches_clean_title": (
-                    _clean_title(filename)
-                    == clean_title
-                ),
-
-                "keep_candidate": False,
-            }
-
-            if is_movie:
-                record["keep_candidate"] = (
-                    record["video"]
-                    and record["matches_clean_title"]
-                )
-
-            else:
-                record["keep_candidate"] = (
-                    record["video"]
-                    and record["episode_token"]
-                )
-
-            _LOGGER.warning(
-                "[QBIT] keep=%s | video=%s | match=%s | clean='%s' | file=%s",
-                record["keep_candidate"],
-                record["video"],
-                record["matches_clean_title"],
-                record["cleaned"],
-                filename,
+            records.append(
+                {
+                    "id": f.get("index"),
+                    "path": path,
+                    "filename": filename,
+                    "video": (
+                        os.path.splitext(filename)[1].lower()
+                        in video_exts
+                    ),
+                }
             )
-
-            records.append(record)
 
         return records
 
@@ -569,20 +324,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         "[QBIT] stage=classify hash=%s",
                         torrent_hash,
                     )
-                    
-                    _LOGGER.warning(
-                        "[QBIT] classify_input "
-                        "hash=%s "
-                        "clean_title='%s' "
-                        "season='%s'",
-                        torrent_hash,
-                        item["clean_title"],
-                        item["season"],
-                    )
-                    
-                    item["token_type"] = (
-                        item["token_type"]
-                    )
 
                     item["keep_files"] = [
                         r for r in classify_files(
@@ -624,32 +365,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                 .split("/", 1)[0]
                             )
 
-                        if item["folder_old"]:
+                        if item["token_type"] in (
+                            "season",
+                            "complete",
+                        ):
 
-                            if item["token_type"] in (
-                                "season",
-                                "complete",
-                            ):
-
-                                item["folder_new"] = (
-                                    item["category"]
-                                )
-
-                            elif item["token_type"] == "se":
-
-                                item["folder_new"] = (
-                                    item["season"]
-                                )
-
-                            else:
-
-                                item["folder_new"] = (
-                                    item["rename_name"]
-                                )
+                            item["folder_new"] = (
+                                item["category"]
+                            )
 
                         else:
 
-                            item["folder_new"] = ""
+                            item["folder_new"] = (
+                                item["season"]
+                                if item["season"]
+                                else item["rename_name"]
+                            )
 
                         if len(item["keep_files"]) == 1:
 
@@ -659,7 +390,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                 keep["filename"]
                             )[1]
 
-                            item["file_ext"] = ext
+                            if "/" in keep["path"]:
+
+                                current_folder = keep["path"].rsplit(
+                                    "/",
+                                    1,
+                                )[0]
+
+                                item["file_new"] = (
+                                    f"{current_folder}/"
+                                    f"{item['rename_name']}"
+                                    f"{ext}"
+                                )
+
+                            else:
+
+                                item["file_new"] = (
+                                    f"{item['rename_name']}"
+                                    f"{ext}"
+                                )
 
                         _LOGGER.warning(
                             "[QBIT] targets hash=%s "
@@ -701,10 +450,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                     if ok:
 
-                        if (
-                            item["folder_old"]
-                            and item["file_old"]
-                        ):
+                        if item["folder_old"]:
+
                             item["file_old"] = (
                                 item["file_old"]
                                 .replace(
@@ -714,10 +461,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                 )
                             )
 
-                        if (
-                            item["folder_old"]
-                            and item["file_new"]
-                        ):
                             item["file_new"] = (
                                 item["file_new"]
                                 .replace(
@@ -745,29 +488,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         torrent_hash,
                     )
 
-                if (
-                    len(item["keep_files"]) == 1
-                    and not item["file_new"]
-                ):
+                    files = await enumerate_files(
+                        item["base"],
+                        torrent_hash,
+                    )
 
-                    keep = item["keep_files"][0]
+                    if files:
 
-                    if item["folder_old"]:
+                        if item["folder_old"]:
+                            pass
 
-                        item["file_new"] = (
-                            f"{item['folder_new']}/"
-                            f"{item['rename_name']}"
-                            f"{item['file_ext']}"
+                        item["folder_verified"] = True
+
+                        _LOGGER.warning(
+                            "[QBIT] folder_verified "
+                            "hash=%s "
+                            "file_old='%s' "
+                            "file_new='%s'",
+                            torrent_hash,
+                            item["file_old"],
+                            item["file_new"],
                         )
-
-                    else:
-
-                        item["file_new"] = (
-                            f"{item['rename_name']}"
-                            f"{item['file_ext']}"
-                        )
-
-                    item["folder_verified"] = True
 
                     continue
 
@@ -793,6 +534,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                     if ok:
                         item["file_requested"] = True
+                        item["file_verified"] = True
 
                     continue
 
@@ -820,10 +562,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         magnet = (data.get("magnet") or "").strip()
         category = (data.get("category") or "").strip()
         clean_title = (data.get("clean_title") or "").strip()
-        
+
         token_type = (
             data.get("token_type")
-            or None
+            or ""
         )
 
         res = (data.get("res") or "").strip()
@@ -837,7 +579,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             return
 
         base_path = _resolve_base_path(entry)
-        season = _season_from_magnet(magnet)
+        season = (
+            data.get("season")
+            or ""
+        )
         torrent_hash = _hash_from_magnet(magnet)
 
         media_parts = [
@@ -868,10 +613,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             
             # Single episode torrents without folders
             #
+
             if (
                 season
-                and category
-                and clean_title != category
+                and token_type == "se"
             ):
                 savepath = f"{savepath}/{season}"
             
@@ -931,10 +676,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     
                     pending_renames[torrent_hash] = {
                         "base": base,
+
                         "rename_name": rename_name,
+
                         "season": season,
                         "clean_title": clean_title,
                         "category": category,
+
                         "token_type": token_type,
 
                         "metadata_ready": False,
@@ -944,6 +692,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         "folder_verified": False,
 
                         "file_requested": False,
+                        "file_verified": False,
 
                         "files": [],
                         "keep_files": [],
@@ -953,7 +702,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                         "file_old": "",
                         "file_new": "",
-                        "file_ext": "",
                     }
                                         
         except Exception:
