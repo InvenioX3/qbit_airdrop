@@ -608,9 +608,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 pass
 
         # Add magnet (include category/savepath if we have them)
-        form = {"urls": magnet}
+        form = {
+            "urls": magnet,
+            "stop_condition": "MetadataReceived",
+        }
+
         if category:
             form["category"] = category
+
         if savepath:
             form["savepath"] = savepath
 
@@ -621,36 +626,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 timeout=20,
             ) as resp:
                 await resp.text()  # quiet behavior
-                
-                if torrent_hash:
-
-                    try:
-
-                        async with session.post(
-                            f"{base}/api/v2/torrents/setStopCondition",
-                            data={
-                                "hashes": torrent_hash,
-                                "stopCondition": "MetadataReceived",
-                            },
-                            timeout=10,
-                        ) as resp:
-
-                            body = await resp.text()
-
-                            _LOGGER.warning(
-                                "[QBIT] setStopCondition "
-                                "status=%s "
-                                "body=%s",
-                                resp.status,
-                                body,
-                            )
-
-                    except Exception as e:
-
-                        _LOGGER.exception(
-                            "[QBIT] setStopCondition failed: %s",
-                            e,
-                        )
 
                 if torrent_hash and (
                     rename_name or
