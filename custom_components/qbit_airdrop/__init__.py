@@ -768,7 +768,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         if savepath:
             form["savepath"] = savepath
-          
+
+        try:
+
             async with session.post(
                 f"{base}/api/v2/torrents/add",
                 data=form,
