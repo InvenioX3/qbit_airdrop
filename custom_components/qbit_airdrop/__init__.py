@@ -117,7 +117,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
             return []
         
-    def classify_files(files):
+    def enumerate_files_metadata(files):
         video_exts = {
             ".mkv",
             ".mp4",
@@ -172,9 +172,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 folder_source
                 and "/" in folder_source
             ):
-                root_folder = folder_source.split("/", 1)[0]
-
-                folder_name = folder_new
 
                 async with session.post(
                     f"{base}/api/v2/torrents/renameFolder",
@@ -189,13 +186,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     if resp.status >= 400:
                         body = await resp.text()
 
-                        _LOGGER.warning(
-                            "[QBIT] renameFolder failed | status=%s | old=%s | new=%s | body=%s",
-                            resp.status,
-                            root_folder,
-                            folder_name,
-                            body,
-                        )
+                    _LOGGER.warning(
+                        "[QBIT] renameFolder failed | status=%s | old=%s | new=%s | body=%s",
+                        resp.status,
+                        folder_old,
+                        folder_new,
+                        body,
+                    )
 
                         return False
 
@@ -312,118 +309,66 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     if files:
                         item["files"] = files
                         item["metadata_ready"] = True
-
-                    continue
-
-                if (
-                    item["metadata_ready"]
-                    and not item["classified"]
-                ):
-                    
-                    _LOGGER.warning(
-                        "[QBIT] stage=classify hash=%s",
-                        torrent_hash,
-                    )
-
-                    item["keep_files"] = [
-                        r for r in classify_files(
-                            item["files"],
-                            item["clean_title"],
-                            item["season"],
-                        )
-                        if r["keep_candidate"]
+                        
+                    video_files = [
+                        f for f in enumerate_files_metadata(files)
+                        if f["video"]
                     ]
 
-                    if not item["keep_files"]:
+                if video_files:
 
-                        _LOGGER.warning(
-                            "[QBIT] no_keep_files hash=%s",
-                            torrent_hash,
+                    keep = video_files[0]
+
+                    if "/" in keep["path"]:
+                        item["folder_old"] = (
+                            keep["path"]
+                            .split("/", 1)[0]
                         )
 
-                        pending_renames.pop(
-                            torrent_hash,
-                            None,
+                    if item["token_type"] in (
+                        "season",
+                        "complete",
+                    ):
+                        item["folder_new"] = (
+                            item["category"]
                         )
 
-                        continue
+                    else:
+                        item["folder_new"] = (
+                            item["season"]
+                            if item["season"]
+                            else item["rename_name"]
+                        )
 
-                    _LOGGER.warning(
-                        "[QBIT] classify result hash=%s keep=%s",
-                        torrent_hash,
-                        len(item["keep_files"]),
-                    )
+                    if len(video_files) == 1:
 
-                    if item["keep_files"]:
+                        item["file_old"] = keep["path"]
 
-                        keep = item["keep_files"][0]
+                        ext = os.path.splitext(
+                            keep["filename"]
+                        )[1]
 
                         if "/" in keep["path"]:
 
-                            item["folder_old"] = (
+                            current_folder = (
                                 keep["path"]
-                                .split("/", 1)[0]
+                                .rsplit("/", 1)[0]
                             )
 
-                        if item["token_type"] in (
-                            "season",
-                            "complete",
-                        ):
-
-                            item["folder_new"] = (
-                                item["category"]
+                            item["file_new"] = (
+                                f"{current_folder}/"
+                                f"{item['rename_name']}"
+                                f"{ext}"
                             )
 
                         else:
 
-                            item["folder_new"] = (
-                                item["season"]
-                                if item["season"]
-                                else item["rename_name"]
+                            item["file_new"] = (
+                                f"{item['rename_name']}"
+                                f"{ext}"
                             )
 
-                        if len(item["keep_files"]) == 1:
-
-                            item["file_old"] = keep["path"]
-
-                            ext = os.path.splitext(
-                                keep["filename"]
-                            )[1]
-
-                            if "/" in keep["path"]:
-
-                                current_folder = keep["path"].rsplit(
-                                    "/",
-                                    1,
-                                )[0]
-
-                                item["file_new"] = (
-                                    f"{current_folder}/"
-                                    f"{item['rename_name']}"
-                                    f"{ext}"
-                                )
-
-                            else:
-
-                                item["file_new"] = (
-                                    f"{item['rename_name']}"
-                                    f"{ext}"
-                                )
-
-                        _LOGGER.warning(
-                            "[QBIT] targets hash=%s "
-                            "folder_old='%s' "
-                            "folder_new='%s' "
-                            "file_old='%s' "
-                            "file_new='%s'",
-                            torrent_hash,
-                            item["folder_old"],
-                            item["folder_new"],
-                            item["file_old"],
-                            item["file_new"],
-                        )
-
-                    item["classified"] = True
+                    item["keep_files"] = video_files
 
                     continue
 
@@ -680,13 +625,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         "rename_name": rename_name,
 
                         "season": season,
-                        "clean_title": clean_title,
                         "category": category,
 
                         "token_type": token_type,
 
                         "metadata_ready": False,
-                        "classified": False,
                         
                         "folder_requested": False,
                         "folder_verified": False,
