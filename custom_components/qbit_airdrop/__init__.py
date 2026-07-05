@@ -671,7 +671,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 #
                 # folder_request
                 #
-                if not item["folder_requested"]:
+                if (
+                    item["folder_old"]
+                    and not item["folder_requested"]
+                ):
 
                     _LOGGER.warning(
                         "[QBIT] stage=folder_request hash=%s",
@@ -697,7 +700,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 # folder_verify
                 #
                 if (
-                    item["folder_requested"]
+                    item["folder_old"]
+                    and item["folder_requested"]
                     and not item["folder_verified"]
                 ):
 
@@ -714,24 +718,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     if files:
 
                         if item["folder_old"]:
-
-                            item["file_old"] = (
-                                item["file_old"]
-                                .replace(
-                                    item["folder_old"],
-                                    item["folder_new"],
-                                    1,
-                                )
-                            )
-
-                            item["file_new"] = (
-                                item["file_new"]
-                                .replace(
-                                    item["folder_old"],
-                                    item["folder_new"],
-                                    1,
-                                )
-                            )
+                            pass
 
                         item["folder_verified"] = True
 
