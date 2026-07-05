@@ -321,7 +321,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             async with session.post(
                 f"{base}/api/v2/torrents/resume",
                 data={
-                    "hash": torrent_hash,
+                    "hashes": torrent_hash,
                 },
                 timeout=10,
             ) as resp:
