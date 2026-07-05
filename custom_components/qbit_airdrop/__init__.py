@@ -282,6 +282,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             for torrent_hash, item in list(
                 pending_renames.items()
             ):
+                
+                _LOGGER.warning(
+                    "[QBIT] queue_tick hash=%s",
+                    torrent_hash,
+                )
+                
                 exists = await torrent_exists(
                     item["base"],
                     torrent_hash,
@@ -309,6 +315,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     if files:
                         item["files"] = files
                         item["metadata_ready"] = True
+                        
+                        _LOGGER.warning(
+                            "[QBIT] metadata_received hash=%s files=%s",
+                            torrent_hash,
+                            len(files),
+                        )
 
                 video_files = [
                     f
@@ -328,20 +340,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             .split("/", 1)[0]
                         )
 
-                    if item["token_type"] in (
-                        "season",
-                        "complete",
-                    ):
-                        item["folder_new"] = (
-                            item["category"]
-                        )
-
-                    else:
-                        item["folder_new"] = (
-                            item["season"]
-                            if item["season"]
-                            else item["rename_name"]
-                        )
+                    item["folder_new"] = item["rename_name"]
 
                     if len(video_files) == 1:
 
@@ -556,11 +555,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             or ""
         ).strip()
 
-        token_type = (
-            data.get("token_type")
-            or ""
-        )
-
         res = (data.get("res") or "").strip()
         codec = (data.get("codec") or "").strip()
         audio = (data.get("audio") or "").strip()
@@ -572,10 +566,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             return
 
         base_path = _resolve_base_path(entry)
-        season = (
-            data.get("season")
-            or ""
-        )
+
         torrent_hash = _hash_from_magnet(magnet)
 
         rename_name = re.sub(
@@ -589,15 +580,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # Join base_path + category, ensure trailing slash
             sep_needed = not (base_path.endswith("/") or base_path.endswith("\\"))
             savepath = f"{base_path}{'/' if sep_needed else ''}{category}"
-            
-            # Single episode torrents without folders
-            #
-
-            if (
-                season
-                and token_type == "se"
-            ):
-                savepath = f"{savepath}/{season}"
             
             if not (savepath.endswith("/") or savepath.endswith("\\")):
                 savepath = f"{savepath}/"
@@ -642,10 +624,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                     await asyncio.sleep(0.2)
 
-                if torrent_hash and (
-                    rename_name or
-                    season
-                ):
+                if torrent_hash and rename_name:
                     
                     _LOGGER.warning(
                         "[QBIT] queue_create hash=%s",
@@ -657,10 +636,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                         "rename_name": rename_name,
 
-                        "season": season,
                         "category": category,
-
-                        "token_type": token_type,
 
                         "metadata_ready": False,
                         
@@ -682,6 +658,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         "file_old": "",
                         "file_new": "",
                     }
+                    
+                    _LOGGER.warning(
+                        "[QBIT] queue_added hash=%s",
+                        torrent_hash,
+                    )
                                         
         except Exception:
             pass
