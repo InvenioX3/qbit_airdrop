@@ -692,6 +692,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     )
 
                     if ok:
+
+                        if item["folder_old"]:
+
+                            item["file_old"] = (
+                                item["file_old"]
+                                .replace(
+                                    item["folder_old"],
+                                    item["folder_new"],
+                                    1,
+                                )
+                            )
+
+                            item["file_new"] = (
+                                item["file_new"]
+                                .replace(
+                                    item["folder_old"],
+                                    item["folder_new"],
+                                    1,
+                                )
+                            )
+
                         item["folder_requested"] = True
 
                     continue
