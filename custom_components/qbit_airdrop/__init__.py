@@ -199,6 +199,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         )
 
                         return False
+                        
+                return True
 
         except Exception as e:
             _LOGGER.exception(
@@ -329,29 +331,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             return True
             
     async def process_pending_queue() -> None:
-        
-        _LOGGER.warning(
-            "[QBIT] queue_processor_started"
-        )
-
-        
         while True:
 
-            try:
-
-                for torrent_hash, item in list(
-                    pending_renames.items()
-                ):
+            for torrent_hash, item in list(
+                pending_renames.items()
+            ):
                 
-                    _LOGGER.warning(
-                        "[QBIT] queue_tick hash=%s",
-                        torrent_hash,
-                    )
+                _LOGGER.warning(
+                    "[QBIT] queue_tick hash=%s",
+                    torrent_hash,
+                )
                 
-                    exists = await torrent_exists(
-                        item["base"],
-                        torrent_hash,
-                    )
+                exists = await torrent_exists(
+                    item["base"],
+                    torrent_hash,
+                )
 
                 if not exists:
                     pending_renames.pop(
@@ -702,13 +696,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     torrent_hash,
                     None,
                 )
-                
-            except Exception as e:
-
-                _LOGGER.exception(
-                    "[QBIT] queue_worker_crashed: %s",
-                    e,
-                )
 
             await asyncio.sleep(1)
             
@@ -835,11 +822,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         "file_old": "",
                         "file_new": "",
                     }
-                    
-                    _LOGGER.warning(
-                        "[QBIT] queue_size=%s",
-                        len(pending_renames),
-                    )
                     
                     _LOGGER.warning(
                         "[QBIT] queue_added hash=%s",
