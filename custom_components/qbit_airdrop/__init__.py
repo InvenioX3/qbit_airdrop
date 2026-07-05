@@ -258,6 +258,54 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
 
             return False
+            
+    async def set_file_priorities(
+        base,
+        torrent_hash,
+        file_ids,
+        priority,
+    ):
+        try:
+
+            if not file_ids:
+                return True
+
+            async with session.post(
+                f"{base}/api/v2/torrents/filePrio",
+                data={
+                    "hash": torrent_hash,
+                    "id": "|".join(
+                        str(i)
+                        for i in file_ids
+                    ),
+                    "priority": priority,
+                },
+                timeout=10,
+            ) as resp:
+
+                return resp.status < 400
+
+        except Exception:
+            return False
+
+    async def resume_torrent(
+        base,
+        torrent_hash,
+    ):
+        try:
+
+            async with session.post(
+                f"{base}/api/v2/torrents/resume",
+                data={
+                    "hashes": torrent_hash,
+                },
+                timeout=10,
+            ) as resp:
+
+                return resp.status < 400
+
+        except Exception:
+            return False
 
     async def torrent_exists(
         base: str,
@@ -353,7 +401,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             .lower()
                         )
 
-                        if title in name:
+                        base = os.path.splitext(
+                            name
+                        )[0]
+
+                        if item["token_type"] == "year":
+
+                            if base == title:
+                                candidates.append(f)
+
+                        elif item["token_type"] == "se":
+
+                            if title in base:
+                                candidates.append(f)
+
+                        elif item["token_type"] in (
+                            "season",
+                            "complete",
+                        ):
+
                             candidates.append(f)
 
                     item["keep_files"] = candidates
@@ -388,7 +454,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                     item["clean_title"]
                                 )
 
-                            elif item["season"]:
+                            elif item["token_type"] == "se":
 
                                 item["folder_new"] = (
                                     item["season"]
@@ -447,7 +513,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         torrent_hash,
                     )
 
-                    item["priorities_requested"] = True
+                    drop_ids = [
+                        f["id"]
+                        for f in item["drop_files"]
+                    ]
+
+                    ok = await set_file_priorities(
+                        item["base"],
+                        torrent_hash,
+                        drop_ids,
+                        0,
+                    )
+
+                    if ok:
+                        item["priorities_requested"] = True
 
                     continue
 
@@ -584,7 +663,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 # complete
                 #
                 _LOGGER.warning(
-                    "[QBIT] stage=complete hash=%s",
+                    "[QBIT] stage=resume hash=%s",
+                    torrent_hash,
+                )
+
+                await resume_torrent(
+                    item["base"],
                     torrent_hash,
                 )
 
