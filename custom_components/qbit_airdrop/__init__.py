@@ -291,7 +291,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                 return resp.status < 400
 
-        except Exception:
+        except Exception as e:
+
+            _LOGGER.exception(
+                "[QBIT] filePrio failed: %s",
+                e,
+            )
+
             return False
 
     async def resume_torrent(
@@ -310,7 +316,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                 return resp.status < 400
 
-        except Exception:
+        except Exception as e:
+
+            _LOGGER.exception(
+                "[QBIT] resume failed: %s",
+                e,
+            )
+
             return False
 
     async def torrent_exists(
@@ -755,8 +767,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 ) as resp:
                     await resp.text()
                     # ignore status; on some builds createCategory returns 409 if exists
-            except Exception:
-                pass
+            except Exception as e:
+
+                _LOGGER.exception(
+                    "[QBIT] createCategory failed: %s",
+                    e,
+                )
 
         # Add magnet (include category/savepath if we have them)
         form = {
