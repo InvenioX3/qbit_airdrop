@@ -339,7 +339,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
             return bool(data)
 
-        except Exception:
+        except Exception as e:
+
+            _LOGGER.exception(
+                "[QBIT] torrent_exists failed: %s",
+                e,
+            )
+
             return True
             
     async def process_pending_queue() -> None:
@@ -811,8 +817,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         rename_name,
                     )
 
+                _LOGGER.warning(
+                    "[QBIT] queue_check hash=%s rename_name='%s'",
+                    torrent_hash,
+                    rename_name,
+                )
+
                 if torrent_hash and rename_name:
-                    
+
                     _LOGGER.warning(
                         "[QBIT] queue_create hash=%s",
                         torrent_hash,
