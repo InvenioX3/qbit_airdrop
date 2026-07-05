@@ -398,11 +398,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async def process_torrent(
         base: str,
         torrent_hash: str,
-        rename_name: str,
-        season: str,
         keep_files,
-        folder_only: bool,
-        renamed_folder: str,
+        folder_old: str,
+        folder_new: str,
     ) -> bool:
 
         try:
@@ -422,14 +420,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             ):
                 root_folder = folder_source.split("/", 1)[0]
 
-                folder_name = season if season else rename_name
+                folder_name = folder_new
 
                 async with session.post(
                     f"{base}/api/v2/torrents/renameFolder",
                     data={
                         "hash": torrent_hash,
-                        "oldPath": root_folder,
-                        "newPath": folder_name,
+                        "oldPath": folder_old,
+                        "newPath": folder_new,
                     },
                     timeout=10,
                 ) as resp:
@@ -446,63 +444,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         )
 
                         return False
-
-            if (
-                not folder_only
-                and len(keep_files) == 1
-                and rename_name
-            ):
-                old_path = keep_files[0]["path"]
-                
-                original_folder = old_path.split("/", 1)[0]
-
-                old_path = old_path.replace(
-                    f"{original_folder}/",
-                    f"{renamed_folder}/",
-                    1,
-                )
-
-                if "/" in old_path:
-                    current_file = old_path.rsplit("/", 1)[1]
-                    ext = os.path.splitext(current_file)[1]
-
-                    current_folder = old_path.rsplit("/", 1)[0]
-
-                    new_path = (
-                        f"{current_folder}/"
-                        f"{rename_name}{ext}"
-                    )
-                else:
-                    ext = os.path.splitext(old_path)[1]
-                    new_path = f"{rename_name}{ext}"
-                    
-                _LOGGER.warning(
-                    "[QBIT] rename_file hash=%s old='%s' new='%s'",
-                    torrent_hash,
-                    old_path,
-                    new_path,
-                )
-
-                async with session.post(
-                    f"{base}/api/v2/torrents/renameFile",
-                    data={
-                        "hash": torrent_hash,
-                        "oldPath": old_path,
-                        "newPath": new_path,
-                    },
-                    timeout=10,
-                ) as resp:
-
-                    if resp.status >= 400:
-                        body = await resp.text()
-
-                        _LOGGER.warning(
-                            "[QBIT] renameFile failed | status=%s | old=%s | new=%s | body=%s",
-                            resp.status,
-                            old_path,
-                            new_path,
-                            body,
-                        )
 
         except Exception as e:
             _LOGGER.exception(
@@ -695,9 +636,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                         if len(item["keep_files"]) == 1:
 
-                            item["target_file_id"] = keep["id"]
-                            item["target_file_path"] = keep["path"]
-
                             item["file_old"] = keep["path"]
 
                             ext = os.path.splitext(
@@ -761,7 +699,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         item["season"],
                         item["keep_files"],
                         folder_only=True,
-                        renamed_folder="",
                     )
 
                     if ok:
@@ -850,64 +787,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                     if ok:
                         item["file_requested"] = True
-
-                    continue
-
-                #
-                # file_verify
-                #
-                if (
-                    item["file_requested"]
-                    and not item["file_verified"]
-                ):
-
-                    _LOGGER.warning(
-                        "[QBIT] stage=file_verify hash=%s",
-                        torrent_hash,
-                    )
-
-                    files = await enumerate_files(
-                        item["base"],
-                        torrent_hash,
-                    )
-
-                    if files:
-
-                        expected_name = item["rename_name"]
-
-                        if len(item["keep_files"]) == 1:
-
-                            current_path = ""
-
-                            for f in files:
-
-                                if (
-                                    f.get("index")
-                                    == item["target_file_id"]
-                                ):
-                                    current_path = str(
-                                        f.get("name", "")
-                                    )
-                                    break
-
-                            current_file = os.path.basename(
-                                current_path
-                            )
-
-                            current_base = os.path.splitext(
-                                current_file
-                            )[0]
-                            
-                            _LOGGER.warning(
-                                "[QBIT] verify_file hash=%s expected='%s' current='%s'",
-                                torrent_hash,
-                                expected_name,
-                                current_base,
-                            )
-
-                            if current_base == expected_name:
-
-                                item["file_verified"] = True
+                        item["file_verified"] = True
 
                     continue
 
@@ -1049,9 +929,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                         "files": [],
                         "keep_files": [],
-
-                        "target_file_id": None,
-                        "target_file_path": "",
 
                         "folder_old": "",
                         "folder_new": "",
