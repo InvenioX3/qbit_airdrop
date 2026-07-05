@@ -330,53 +330,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     if f["video"]
                 ]
 
-                if video_files:
-
-                    keep = video_files[0]
-
-                    if "/" in keep["path"]:
-                        item["folder_old"] = (
-                            keep["path"]
-                            .split("/", 1)[0]
-                        )
-
-                    item["folder_new"] = item["rename_name"]
-
-                    if len(video_files) == 1:
-
-                        item["file_old"] = keep["path"]
-
-                        ext = os.path.splitext(
-                            keep["filename"]
-                        )[1]
-
-                        if "/" in keep["path"]:
-
-                            current_folder = (
-                                keep["path"]
-                                .rsplit("/", 1)[0]
-                            )
-
-                            item["file_new"] = (
-                                f"{current_folder}/"
-                                f"{item['rename_name']}"
-                                f"{ext}"
-                            )
-
-                        else:
-
-                            item["file_new"] = (
-                                f"{item['rename_name']}"
-                                f"{ext}"
-                            )
-
-                    item["keep_files"] = video_files
-
-                    _LOGGER.warning(
-                        "[QBIT] video_files=%s",
-                        len(video_files),
-                    )
-
                 #
                 # determine_keep_files
                 #
@@ -400,23 +353,86 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             .lower()
                         )
 
-                        if "sample" in name:
-                            continue
-
-                        if "featurette" in name:
-                            continue
-
                         if title in name:
                             candidates.append(f)
 
                     item["keep_files"] = candidates
 
-                    _LOGGER.warning(
-                        "[QBIT] keep_files=%s",
-                        len(candidates),
-                    )
+                    keep_ids = {
+                        f["id"]
+                        for f in candidates
+                    }
 
-                    continue
+                    item["drop_files"] = [
+                        f
+                        for f in enumerate_files_metadata(
+                            item["files"]
+                        )
+                        if f["id"] not in keep_ids
+                    ]
+
+                    if candidates:
+
+                        keep = candidates[0]
+
+                        if "/" in keep["path"]:
+
+                            item["folder_old"] = (
+                                keep["path"]
+                                .split("/", 1)[0]
+                            )
+
+                            if item["token_type"] == "year":
+
+                                item["folder_new"] = (
+                                    item["clean_title"]
+                                )
+
+                            elif item["season"]:
+
+                                item["folder_new"] = (
+                                    item["season"]
+                                )
+
+                            else:
+
+                                item["folder_new"] = (
+                                    item["category"]
+                                )
+
+                        if len(candidates) == 1:
+
+                            item["file_old"] = keep["path"]
+
+                            ext = os.path.splitext(
+                                keep["filename"]
+                            )[1]
+
+                            if "/" in keep["path"]:
+
+                                current_folder = (
+                                    keep["path"]
+                                    .rsplit("/", 1)[0]
+                                )
+
+                                item["file_new"] = (
+                                    f"{current_folder}/"
+                                    f"{item['rename_name']}"
+                                    f"{ext}"
+                                )
+
+                            else:
+
+                                item["file_new"] = (
+                                    f"{item['rename_name']}"
+                                    f"{ext}"
+                                )
+
+                    _LOGGER.warning(
+                        "[QBIT] keep_files=%s drop_files=%s",
+                        len(item["keep_files"]),
+                        len(item["drop_files"]),
+                    )
 
                 #
                 # priorities_request
@@ -676,6 +692,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         "rename_name": rename_name,
                         "clean_title": clean_title,
                         "category": category,
+                        
+                        "token_type": (
+                            data.get("token_type")
+                            or ""
+                        ),
+
+                        "season": (
+                            data.get("season")
+                            or ""
+                        ),
+                        
                         "metadata_ready": False,
                         "priorities_requested": False,
                         "priorities_verified": False,
@@ -685,6 +712,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         "file_verified": False,
                         "files": [],
                         "keep_files": [],
+                        "drop_files": [],
                         "folder_old": "",
                         "folder_new": "",
                         "file_old": "",
