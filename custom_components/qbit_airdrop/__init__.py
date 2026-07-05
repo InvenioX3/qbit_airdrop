@@ -307,14 +307,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         try:
 
             _LOGGER.warning(
-                "[QBIT] resume_url=%s",
+                "[QBIT] resume_url=%s hash=%s",
                 f"{base}/api/v2/torrents/resume",
+                torrent_hash,
             )
 
             _LOGGER.warning(
                 "[QBIT] resume payload=%s",
                 {
-                    "hash": torrent_hash,
+                    "hashes": torrent_hash,
                 },
             )
 
@@ -746,10 +747,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     ok,
                 )
 
-                pending_renames.pop(
-                    torrent_hash,
-                    None,
-                )
+                if ok:
+
+                    pending_renames.pop(
+                        torrent_hash,
+                        None,
+                    )
 
             await asyncio.sleep(1)
             
