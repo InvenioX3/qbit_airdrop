@@ -768,14 +768,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         if savepath:
             form["savepath"] = savepath
-
-        except Exception as e:
-
-            _LOGGER.exception(
-                "[QBIT] add_magnet failed: %s",
-                e,
-            )
-            
+          
             async with session.post(
                 f"{base}/api/v2/torrents/add",
                 data=form,
