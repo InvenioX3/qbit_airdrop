@@ -454,13 +454,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             ):
                 old_path = keep_files[0]["path"]
                 
-                    original_folder = old_path.split("/", 1)[0]
+                original_folder = old_path.split("/", 1)[0]
 
-                    old_path = old_path.replace(
-                        f"{original_folder}/",
-                        f"{renamed_folder}/",
-                        1,
-                    )
+                old_path = old_path.replace(
+                    f"{original_folder}/",
+                    f"{renamed_folder}/",
+                    1,
+                )
 
                 if "/" in old_path:
                     current_file = old_path.rsplit("/", 1)[1]
