@@ -581,9 +581,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     )
                     
                     item["token_type"] = (
-                        _analyze_title(
-                            item["clean_title"]
-                        )["token_type"]
+                        item["token_type"]
                     )
 
                     item["keep_files"] = [
@@ -626,22 +624,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                 .split("/", 1)[0]
                             )
 
-                        if item["token_type"] in (
-                            "season",
-                            "complete",
-                        ):
+                        if item["folder_old"]:
 
-                            item["folder_new"] = (
-                                item["category"]
-                            )
+                            if item["token_type"] in (
+                                "season",
+                                "complete",
+                            ):
+
+                                item["folder_new"] = (
+                                    item["category"]
+                                )
+
+                            elif item["token_type"] == "se":
+
+                                item["folder_new"] = (
+                                    item["season"]
+                                )
+
+                            else:
+
+                                item["folder_new"] = (
+                                    item["rename_name"]
+                                )
 
                         else:
 
-                            item["folder_new"] = (
-                                item["season"]
-                                if item["season"]
-                                else item["rename_name"]
-                            )
+                            item["folder_new"] = ""
 
                         if len(item["keep_files"]) == 1:
 
@@ -742,7 +750,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     and not item["file_new"]
                 ):
 
-                    if item["folder_new"]:
+                    keep = item["keep_files"][0]
+
+                    if item["folder_old"]:
 
                         item["file_new"] = (
                             f"{item['folder_new']}/"
@@ -810,6 +820,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         magnet = (data.get("magnet") or "").strip()
         category = (data.get("category") or "").strip()
         clean_title = (data.get("clean_title") or "").strip()
+        
+        token_type = (
+            data.get("token_type")
+            or None
+        )
 
         res = (data.get("res") or "").strip()
         codec = (data.get("codec") or "").strip()
@@ -853,11 +868,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             
             # Single episode torrents without folders
             #
-            token_type = _analyze_title(clean_title)["token_type"]
-
             if (
                 season
-                and token_type == "se"
+                and category
+                and clean_title != category
             ):
                 savepath = f"{savepath}/{season}"
             
@@ -921,7 +935,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         "season": season,
                         "clean_title": clean_title,
                         "category": category,
-                        "token_type": None,
+                        "token_type": token_type,
 
                         "metadata_ready": False,
                         "classified": False,
