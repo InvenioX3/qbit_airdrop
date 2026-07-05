@@ -300,27 +300,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
             return False
 
-    async def resume_torrent(
+    async def start_torrent(
         base,
         torrent_hash,
     ):
         try:
 
             _LOGGER.warning(
-                "[QBIT] resume_url=%s hash=%s",
-                f"{base}/api/v2/torrents/resume",
+                "[QBIT] start_url=%s hash=%s",
+                f"{base}/api/v2/torrents/start",
                 torrent_hash,
             )
 
             _LOGGER.warning(
-                "[QBIT] resume payload=%s",
+                "[QBIT] start payload=%s",
                 {
                     "hashes": torrent_hash,
                 },
             )
 
             async with session.post(
-                f"{base}/api/v2/torrents/resume",
+                f"{base}/api/v2/torrents/start",
                 data={
                     "hashes": torrent_hash,
                 },
@@ -330,7 +330,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 body = await resp.text()
 
                 _LOGGER.warning(
-                    "[QBIT] resume status=%s body=%s hash=%s",
+                    "[QBIT] start status=%s body=%s hash=%s",
                     resp.status,
                     body,
                     torrent_hash,
@@ -341,7 +341,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception as e:
 
             _LOGGER.exception(
-                "[QBIT] resume failed: %s",
+                "[QBIT] start failed: %s",
                 e,
             )
 
@@ -736,13 +736,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 #
                 # complete
                 #
-                ok = await resume_torrent(
+                ok = await start_torrent(
                     item["base"],
                     torrent_hash,
                 )
 
                 _LOGGER.warning(
-                    "[QBIT] resume_result hash=%s ok=%s",
+                    "[QBIT] start_result hash=%s ok=%s",
                     torrent_hash,
                     ok,
                 )
