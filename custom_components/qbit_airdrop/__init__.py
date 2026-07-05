@@ -570,6 +570,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         torrent_hash,
                     )
                     
+                    _LOGGER.warning(
+                        "[QBIT] classify_input "
+                        "hash=%s "
+                        "clean_title='%s' "
+                        "season='%s'",
+                        torrent_hash,
+                        item["clean_title"],
+                        item["season"],
+                    )
+                    
                     item["token_type"] = (
                         _analyze_title(
                             item["clean_title"]
@@ -700,26 +710,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     )
 
                     if ok:
-
-                        if item["folder_old"]:
-
-                            item["file_old"] = (
-                                item["file_old"]
-                                .replace(
-                                    item["folder_old"],
-                                    item["folder_new"],
-                                    1,
-                                )
-                            )
-
-                            item["file_new"] = (
-                                item["file_new"]
-                                .replace(
-                                    item["folder_old"],
-                                    item["folder_new"],
-                                    1,
-                                )
-                            )
 
                         item["folder_requested"] = True
 
