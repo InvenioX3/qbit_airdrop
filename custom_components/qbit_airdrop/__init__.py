@@ -314,7 +314,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             async with session.post(
                 f"{base}/api/v2/torrents/resume",
                 data={
-                    "hashes": torrent_hash,
+                    "hash": torrent_hash,
                 },
                 timeout=10,
             ) as resp:
@@ -933,6 +933,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if task:
         task.cancel()
+        
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
     
     try:
         hass.services.async_remove(DOMAIN, "add_magnet")
