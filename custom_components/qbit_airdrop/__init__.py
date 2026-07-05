@@ -343,15 +343,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     pending_renames.items()
                 ):
                 
-                _LOGGER.warning(
-                    "[QBIT] queue_tick hash=%s",
-                    torrent_hash,
-                )
+                    _LOGGER.warning(
+                        "[QBIT] queue_tick hash=%s",
+                        torrent_hash,
+                    )
                 
-                exists = await torrent_exists(
-                    item["base"],
-                    torrent_hash,
-                )
+                    exists = await torrent_exists(
+                        item["base"],
+                        torrent_hash,
+                    )
 
                 if not exists:
                     pending_renames.pop(
