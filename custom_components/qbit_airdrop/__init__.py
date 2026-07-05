@@ -603,38 +603,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         len(item["keep_files"]),
                     )
 
-                    if len(item["keep_files"]) == 1:
+                    if item["keep_files"]:
 
                         keep = item["keep_files"][0]
-
-                        item["target_file_id"] = keep["id"]
-                        item["target_file_path"] = keep["path"]
-
-                        item["file_old"] = keep["path"]
-
-                        ext = os.path.splitext(
-                            keep["filename"]
-                        )[1]
-
-                        if "/" in keep["path"]:
-
-                            current_folder = keep["path"].rsplit(
-                                "/",
-                                1,
-                            )[0]
-
-                            item["file_new"] = (
-                                f"{current_folder}/"
-                                f"{item['rename_name']}"
-                                f"{ext}"
-                            )
-
-                        else:
-
-                            item["file_new"] = (
-                                f"{item['rename_name']}"
-                                f"{ext}"
-                            )
 
                         if "/" in keep["path"]:
 
@@ -648,6 +619,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                 if item["season"]
                                 else item["rename_name"]
                             )
+
+                        if len(item["keep_files"]) == 1:
+
+                            item["target_file_id"] = keep["id"]
+                            item["target_file_path"] = keep["path"]
+
+                            item["file_old"] = keep["path"]
+
+                            ext = os.path.splitext(
+                                keep["filename"]
+                            )[1]
+
+                            if "/" in keep["path"]:
+
+                                current_folder = keep["path"].rsplit(
+                                    "/",
+                                    1,
+                                )[0]
+
+                                item["file_new"] = (
+                                    f"{current_folder}/"
+                                    f"{item['rename_name']}"
+                                    f"{ext}"
+                                )
+
+                            else:
+
+                                item["file_new"] = (
+                                    f"{item['rename_name']}"
+                                    f"{ext}"
+                                )
 
                         _LOGGER.warning(
                             "[QBIT] targets hash=%s "
@@ -748,7 +750,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 #
                 # file_request
                 #
-                if not item["file_requested"]:
+                if (
+                    len(item["keep_files"]) == 1
+                    and not item["file_requested"]
+                ):
 
                     _LOGGER.warning(
                         "[QBIT] stage=file_request hash=%s",
