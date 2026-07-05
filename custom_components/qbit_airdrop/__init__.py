@@ -140,6 +140,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     "id": f.get("index"),
                     "path": path,
                     "filename": filename,
+                    "size": int(
+                        f.get("size", 0)
+                        or 0
+                    ),
                     "video": (
                         os.path.splitext(filename)[1].lower()
                         in video_exts
@@ -186,13 +190,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     if resp.status >= 400:
                         body = await resp.text()
 
-                    _LOGGER.warning(
-                        "[QBIT] renameFolder failed | status=%s | old=%s | new=%s | body=%s",
-                        resp.status,
-                        folder_old,
-                        folder_new,
-                        body,
-                    )
+                        _LOGGER.warning(
+                            "[QBIT] renameFolder failed | status=%s | old=%s | new=%s | body=%s",
+                            resp.status,
+                            folder_old,
+                            folder_new,
+                            body,
+                        )
 
                     return False
 
@@ -394,6 +398,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         .lower()
                     )
 
+                    matching = []
+
                     for f in video_files:
 
                         name = (
@@ -401,28 +407,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             .lower()
                         )
 
-                        base = os.path.splitext(
-                            name
-                        )[0]
+                        if title in name:
+                            matching.append(f)
 
-                        if item["token_type"] == "year":
+                    if item["token_type"] in (
+                        "season",
+                        "complete",
+                    ):
 
-                            if base == title:
-                                candidates.append(f)
+                        candidates = matching
 
-                        elif item["token_type"] == "se":
+                    else:
 
-                            if title in base:
-                                candidates.append(f)
-
-                        elif item["token_type"] in (
-                            "season",
-                            "complete",
-                        ):
-
-                            candidates.append(f)
+                        candidates = (
+                            [max(
+                                matching,
+                                key=lambda x: x["size"],
+                            )]
+                            if matching
+                            else []
+                        )
 
                     item["keep_files"] = candidates
+                    
+                    _LOGGER.warning(
+                        "[QBIT] candidates=%s title='%s'",
+                        [f["filename"] for f in candidates],
+                        title,
+                    )
 
                     keep_ids = {
                         f["id"]
@@ -523,6 +535,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         torrent_hash,
                         drop_ids,
                         0,
+                    )
+
+                    _LOGGER.warning(
+                        "[QBIT] filePrio ok=%s drop_ids=%s",
+                        ok,
+                        drop_ids,
                     )
 
                     if ok:
