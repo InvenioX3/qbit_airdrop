@@ -192,6 +192,66 @@ def _clean_title(name_raw: str) -> str:
         trimmed.replace(".", " "),
     ).strip()
     
+def _analyze_title(name_raw: str):
+
+    name = os.path.splitext(
+        str(name_raw or "")
+    )[0]
+
+    if not name:
+        return {
+            "token_type": None,
+        }
+
+    se = re.search(
+        r"\bS\d{1,2}E\d{1,3}\b",
+        name,
+        re.I,
+    )
+
+    s = re.search(
+        r"\bS\d{1,2}\b(?!-\d)",
+        name,
+        re.I,
+    )
+
+    season = re.search(
+        r"\bSeason\s+\d+(?:\s*-\s*\d+)?\b",
+        name,
+        re.I,
+    )
+
+    complete = re.search(
+        r"\b(?:Complete\s+Series|Complete\s+Season)\b",
+        name,
+        re.I,
+    )
+
+    yr = re.search(
+        r"\(?\b(?:19|20)\d{2}\b\)?",
+        name,
+        re.I,
+    )
+
+    if se:
+        return {"token_type": "se"}
+
+    if s:
+        return {"token_type": "s"}
+
+    if season:
+        return {"token_type": "season"}
+
+    if complete:
+        return {"token_type": "complete"}
+
+    if yr:
+        return {"token_type": "year"}
+
+    return {
+        "token_type": None,
+    }
+    
 def _hash_from_magnet(magnet: str) -> str:
     m = re.search(
         r"xt=urn:btih:([a-fA-F0-9]+)",
@@ -394,10 +454,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             ):
                 old_path = keep_files[0]["path"]
                 
-                if (
-                    renamed_folder
-                    and "/" in old_path
-                ):
                     original_folder = old_path.split("/", 1)[0]
 
                     old_path = old_path.replace(
@@ -573,6 +629,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         "[QBIT] stage=classify hash=%s",
                         torrent_hash,
                     )
+                    
+                    item["token_type"] = (
+                        _analyze_title(
+                            item["clean_title"]
+                        )["token_type"]
+                    )
 
                     item["keep_files"] = [
                         r for r in classify_files(
@@ -614,11 +676,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                 .split("/", 1)[0]
                             )
 
-                            item["folder_new"] = (
-                                item["season"]
-                                if item["season"]
-                                else item["rename_name"]
-                            )
+                            if item["token_type"] in (
+                                "season",
+                                "complete",
+                            ):
+
+                                item["folder_new"] = (
+                                    item["category"]
+                                )
+
+                            else:
+
+                                item["folder_new"] = (
+                                    item["season"]
+                                    if item["season"]
+                                    else item["rename_name"]
+                                )
 
                         if len(item["keep_files"]) == 1:
 
@@ -963,6 +1036,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         "season": season,
                         "clean_title": clean_title,
                         "category": category,
+                        "token_type": None,
 
                         "metadata_ready": False,
                         "classified": False,
