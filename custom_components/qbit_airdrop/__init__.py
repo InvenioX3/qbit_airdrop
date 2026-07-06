@@ -500,7 +500,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         elif item["token_type"] == "se":
 
                             item["folder_new"] = (
-                                item["folder_old"]
+                                item["season"]
                             )
 
                         elif item["token_type"] in (
@@ -566,6 +566,50 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     if ok:
                         item["file_requested"] = True
                         item["file_verified"] = True
+
+                    continue
+
+                #
+                # location_request
+                #
+                if (
+                    item["file_verified"]
+                    and item["token_type"] == "se"
+                    and not item["folder_old"]
+                    and item["season"]
+                    and item["savepath"]
+                    and not item["location_requested"]
+                ):
+
+                    _LOGGER.warning(
+                        "[QBIT] stage=location_request hash=%s",
+                        torrent_hash,
+                    )
+
+                    sep = (
+                        "\\"
+                        if "\\" in item["savepath"]
+                        and "/" not in item["savepath"]
+                        else "/"
+                    )
+
+                    location = (
+                        item["savepath"].rstrip("/\\")
+                        + sep
+                        + item["season"]
+                        + sep
+                    )
+
+                    ok = await set_location(
+                        item["base"],
+                        torrent_hash,
+                        location,
+                    )
+
+                    if ok:
+                        item["location_requested"] = True
+                        item["location_verified"] = True
+                        item["renamed"] = True
 
                     continue
 
@@ -730,14 +774,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 category,
             ]
 
-            if (
-                (data.get("token_type") or "") == "se"
-                and (data.get("season") or "")
-            ):
-                parts.append(
-                    data.get("season")
-                )
-
             savepath = (
                 sep.join(parts)
                 + sep
@@ -833,6 +869,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         "folder_verified": False,
                         "file_requested": False,
                         "file_verified": False,
+                        "location_requested": False,
+                        "location_verified": False,
                         "renamed": False,
                         "files": [],
                         "keep_files": [],
