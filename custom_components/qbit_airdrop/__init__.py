@@ -497,16 +497,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                 item["clean_title"]
                             )
 
-                        elif item["token_type"] == "se":
+                        elif item["token_type"] in (
+                            "se",
+                            "s",
+                            "season",
+                        ):
 
                             item["folder_new"] = (
                                 item["season"]
                             )
 
-                        elif item["token_type"] in (
-                            "season",
-                            "complete",
-                        ):
+                        elif item["token_type"] == "complete":
 
                             item["folder_new"] = (
                                 item["category"]
@@ -574,7 +575,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 #
                 if (
                     item["file_verified"]
-                    and item["token_type"] == "se"
+                    and item["token_type"] in (
+                        "se",
+                        "s",
+                        "season",
+                    )
                     and not item["folder_old"]
                     and item["season"]
                     and item["savepath"]
