@@ -494,10 +494,38 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     )
 
                 #
+                # file_request
+                #
+                if (
+                    item["file_old"]
+                    and item["file_new"]
+                    and not item["file_requested"]
+                ):
+
+                    _LOGGER.warning(
+                        "[QBIT] stage=file_request hash=%s",
+                        torrent_hash,
+                    )
+
+                    ok = await rename_file(
+                        item["base"],
+                        torrent_hash,
+                        item["file_old"],
+                        item["file_new"],
+                    )
+
+                    if ok:
+                        item["file_requested"] = True
+                        item["file_verified"] = True
+
+                    continue
+
+                #
                 # folder_request
                 #
                 if (
-                    item["folder_old"]
+                    item["file_verified"]
+                    and item["folder_old"]
                     and item["folder_new"]
                     and not item["folder_requested"]
                 ):
@@ -515,26 +543,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     )
 
                     if ok:
-
-                        if item["folder_old"]:
-
-                            item["file_old"] = (
-                                item["file_old"]
-                                .replace(
-                                    item["folder_old"],
-                                    item["folder_new"],
-                                    1,
-                                )
-                            )
-
-                            item["file_new"] = (
-                                item["file_new"]
-                                .replace(
-                                    item["folder_old"],
-                                    item["folder_new"],
-                                    1,
-                                )
-                            )
 
                         item["folder_requested"] = True
 
@@ -571,6 +579,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         if renamed:
 
                             item["folder_verified"] = True
+                            item["renamed"] = True
 
                             _LOGGER.warning(
                                 "[QBIT] folder_verified "
@@ -581,38 +590,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                 item["file_old"],
                                 item["file_new"],
                             )
-
-                    continue
-
-                #
-                # file_request
-                #
-                if (
-                    (
-                        not item["folder_old"]
-                        or item["folder_verified"]
-                    )
-                    and item["file_old"]
-                    and item["file_new"]
-                    and not item["file_requested"]
-                ):
-
-                    _LOGGER.warning(
-                        "[QBIT] stage=file_request hash=%s",
-                        torrent_hash,
-                    )
-
-                    ok = await rename_file(
-                        item["base"],
-                        torrent_hash,
-                        item["file_old"],
-                        item["file_new"],
-                    )
-
-                    if ok:
-                        item["file_requested"] = True
-                        item["file_verified"] = True
-                        item["renamed"] = True
 
                     continue
 
