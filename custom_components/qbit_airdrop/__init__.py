@@ -257,6 +257,55 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
             return False
             
+    async def set_location(
+        base,
+        torrent_hash,
+        location,
+    ):
+        try:
+
+            _LOGGER.warning(
+                "[QBIT] set_location hash=%s location='%s'",
+                torrent_hash,
+                location,
+            )
+
+            async with session.post(
+                f"{base}/api/v2/torrents/setLocation",
+                data={
+                    "hashes": torrent_hash,
+                    "location": location,
+                },
+                timeout=10,
+            ) as resp:
+
+                if resp.status >= 400:
+
+                    body = await resp.text()
+
+                    _LOGGER.warning(
+                        "[QBIT] setLocation failed "
+                        "| status=%s "
+                        "| location=%s "
+                        "| body=%s",
+                        resp.status,
+                        location,
+                        body,
+                    )
+
+                    return False
+
+            return True
+
+        except Exception as e:
+
+            _LOGGER.exception(
+                "[QBIT] set_location failed: %s",
+                e,
+            )
+
+            return False
+            
     async def set_file_priorities(
         base,
         torrent_hash,
@@ -487,6 +536,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             f"{ext}"
                         )
 
+                        if (
+                            item["token_type"] == "se"
+                            and item["season"]
+                            and item["savepath"]
+                        ):
+
+                            item["location_new"] = (
+                                f"{item['savepath'].rstrip('/')}/"
+                                f"{item['season']}"
+                            )
+
                     _LOGGER.warning(
                         "[QBIT] rename_target old='%s' new='%s'",
                         item["file_old"],
@@ -517,6 +577,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     if ok:
                         item["file_requested"] = True
                         item["file_verified"] = True
+
+                    continue
+
+                #
+                # location_request
+                #
+                if (
+                    item["file_verified"]
+                    and item["location_new"]
+                    and not item["location_requested"]
+                ):
+
+                    _LOGGER.warning(
+                        "[QBIT] stage=location_request hash=%s",
+                        torrent_hash,
+                    )
+
+                    ok = await set_location(
+                        item["base"],
+                        torrent_hash,
+                        item["location_new"],
+                    )
+
+                    if ok:
+                        item["location_requested"] = True
+                        item["location_verified"] = True
 
                     continue
 
@@ -741,6 +827,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     
                     pending_renames[torrent_hash] = {
                         "base": base,
+                        "savepath": savepath,
 
                         "rename_name": rename_name,
                         "clean_title": clean_title,
@@ -763,6 +850,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         "folder_verified": False,
                         "file_requested": False,
                         "file_verified": False,
+                        "location_requested": False,
+                        "location_verified": False,
                         "renamed": False,
                         "files": [],
                         "keep_files": [],
@@ -771,6 +860,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         "folder_new": "",
                         "file_old": "",
                         "file_new": "",
+                        "location_new": "",
                     }
                     
                     _LOGGER.warning(
