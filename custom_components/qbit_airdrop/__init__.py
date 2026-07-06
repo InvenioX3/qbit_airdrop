@@ -500,7 +500,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         elif item["token_type"] == "se":
 
                             item["folder_new"] = (
-                                item["season"]
+                                item["folder_old"]
                             )
 
                         elif item["token_type"] in (
@@ -536,17 +536,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             f"{ext}"
                         )
 
-                        if (
-                            item["token_type"] == "se"
-                            and item["season"]
-                            and item["savepath"]
-                        ):
-
-                            item["location_new"] = (
-                                f"{item['savepath'].rstrip('/')}/"
-                                f"{item['season']}"
-                            )
-
                     _LOGGER.warning(
                         "[QBIT] rename_target old='%s' new='%s'",
                         item["file_old"],
@@ -577,32 +566,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     if ok:
                         item["file_requested"] = True
                         item["file_verified"] = True
-
-                    continue
-
-                #
-                # location_request
-                #
-                if (
-                    item["file_verified"]
-                    and item["location_new"]
-                    and not item["location_requested"]
-                ):
-
-                    _LOGGER.warning(
-                        "[QBIT] stage=location_request hash=%s",
-                        torrent_hash,
-                    )
-
-                    ok = await set_location(
-                        item["base"],
-                        torrent_hash,
-                        item["location_new"],
-                    )
-
-                    if ok:
-                        item["location_requested"] = True
-                        item["location_verified"] = True
 
                     continue
 
@@ -754,12 +717,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         savepath = ""
         if category and base_path:
-            # Join base_path + category, ensure trailing slash
-            sep_needed = not (base_path.endswith("/") or base_path.endswith("\\"))
-            savepath = f"{base_path}{'/' if sep_needed else ''}{category}"
+
+            sep = (
+                "\\"
+                if "\\" in base_path
+                and "/" not in base_path
+                else "/"
+            )
+
+            parts = [
+                base_path.rstrip("/\\"),
+                category,
+            ]
+
+            if (
+                (data.get("token_type") or "") == "se"
+                and (data.get("season") or "")
+            ):
+                parts.append(
+                    data.get("season")
+                )
+
+            savepath = (
+                sep.join(parts)
+                + sep
+            )
             
-            if not (savepath.endswith("/") or savepath.endswith("\\")):
-                savepath = f"{savepath}/"
             try:
                 async with session.post(
                     f"{base}/api/v2/torrents/createCategory",
@@ -850,8 +833,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         "folder_verified": False,
                         "file_requested": False,
                         "file_verified": False,
-                        "location_requested": False,
-                        "location_verified": False,
                         "renamed": False,
                         "files": [],
                         "keep_files": [],
@@ -860,7 +841,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         "folder_new": "",
                         "file_old": "",
                         "file_new": "",
-                        "location_new": "",
                     }
                     
                     _LOGGER.warning(
