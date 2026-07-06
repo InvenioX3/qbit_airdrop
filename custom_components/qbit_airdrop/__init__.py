@@ -480,6 +480,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         largest_video["path"]
                     )
 
+                    item["file_index"] = (
+                        largest_video["id"]
+                    )
+
                     ext = os.path.splitext(
                         largest_video["filename"]
                     )[1]
@@ -599,6 +603,33 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     )
 
                     continue
+                    
+                #
+                # location_skip
+                #
+                if (
+                    item["file_verified"]
+                    and item["token_type"] in (
+                        "se",
+                        "s",
+                        "season",
+                    )
+                    and item["folder_old"]
+                    and item["season"]
+                    and item["folder_old"].upper() == item["season"].upper()
+                    and not item["location_requested"]
+                ):
+
+                    item["location_requested"] = True
+                    item["location_verified"] = True
+
+                    _LOGGER.warning(
+                        "[QBIT] location_skip hash=%s folder='%s'",
+                        torrent_hash,
+                        item["folder_old"],
+                    )
+
+                    continue
 
                 #
                 # location_request
@@ -611,6 +642,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         "season",
                     )
                     and not item["folder_old"]
+                    and item["file_old"]
+                    and "/" not in item["file_old"]
+                    and "\\" not in item["file_old"]
                     and item["season"]
                     and item["savepath"]
                     and not item["location_requested"]
@@ -914,6 +948,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         "folder_new": "",
                         "file_old": "",
                         "file_new": "",
+                        "file_index": None,
                     }
                     
                     _LOGGER.warning(
