@@ -163,21 +163,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         try:
 
-            if (
-                not folder_old
-                or not folder_new
-            ):
-                return False
+                if (
+                    not folder_old
+                    or not folder_new
+                ):
+                    return False
 
-            async with session.post(
-                f"{base}/api/v2/torrents/renameFolder",
-                data={
-                    "hash": torrent_hash,
-                    "oldPath": folder_old,
-                    "newPath": folder_new,
-                },
-                timeout=10,
-            ) as resp:
+                async with session.post(
+                    f"{base}/api/v2/torrents/renameFolder",
+                    data={
+                        "hash": torrent_hash,
+                        "oldPath": folder_old,
+                        "newPath": folder_new,
+                    },
+                    timeout=10,
+                ) as resp:
 
                     if resp.status >= 400:
                         body = await resp.text()
