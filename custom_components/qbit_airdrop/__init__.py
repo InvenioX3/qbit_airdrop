@@ -424,199 +424,73 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     if f["video"]
                 ]
 
-                #
-                # determine_keep_files
-                #
-
                 if (
                     item["metadata_ready"]
-                    and not item["keep_files"]
+                    and not item["renamed"]
+                    and video_files
                 ):
 
-                    candidates = []
-
-                    episode_match = re.search(
-                        r"\bS\d{1,2}E\d{1,3}\b",
-                        item["rename_name"],
-                        re.I,
+                    largest_video = max(
+                        video_files,
+                        key=lambda x: x["size"],
                     )
 
-                    if episode_match:
+                    item["file_old"] = (
+                        largest_video["path"]
+                    )
 
-                        episode_token = (
-                            episode_match.group(0)
-                            .lower()
+                    ext = os.path.splitext(
+                        largest_video["filename"]
+                    )[1]
+
+                    if "/" in largest_video["path"]:
+
+                        item["folder_old"] = (
+                            largest_video["path"]
+                            .split("/", 1)[0]
                         )
 
-                        candidates = [
-                            f
-                            for f in video_files
-                            if episode_token in f["filename"].lower()
-                        ]
+                        if item["token_type"] == "year":
+
+                            item["folder_new"] = (
+                                item["clean_title"]
+                            )
+
+                        elif item["season"]:
+
+                            item["folder_new"] = (
+                                item["season"]
+                            )
+
+                        else:
+
+                            item["folder_new"] = (
+                                item["category"]
+                            )
+
+                        current_folder = (
+                            largest_video["path"]
+                            .rsplit("/", 1)[0]
+                        )
+
+                        item["file_new"] = (
+                            f"{current_folder}/"
+                            f"{item['rename_name']}"
+                            f"{ext}"
+                        )
 
                     else:
 
-                        title = (
-                            item["clean_title"]
-                            .lower()
+                        item["file_new"] = (
+                            f"{item['rename_name']}"
+                            f"{ext}"
                         )
 
-                        candidates = [
-                            f
-                            for f in video_files
-                            if title in f["filename"].lower()
-                        ]
-
-                        if len(candidates) > 1:
-
-                            candidates = [
-                                max(
-                                    candidates,
-                                    key=lambda x: x["size"],
-                                )
-                            ]
-
                     _LOGGER.warning(
-                        "[QBIT] candidates=%s",
-                        [f["filename"] for f in candidates],
+                        "[QBIT] rename_target old='%s' new='%s'",
+                        item["file_old"],
+                        item["file_new"],
                     )
-
-                    item["keep_files"] = candidates
-                    
-                    _LOGGER.warning(
-                        "[QBIT] candidates=%s title='%s'",
-                        [f["filename"] for f in candidates],
-                        title,
-                    )
-
-                    keep_ids = {
-                        f["id"]
-                        for f in candidates
-                    }
-
-                    item["drop_files"] = [
-                        f
-                        for f in enumerate_files_metadata(
-                            item["files"]
-                        )
-                        if f["id"] not in keep_ids
-                    ]
-
-                    if candidates:
-
-                        keep = candidates[0]
-
-                        if "/" in keep["path"]:
-
-                            item["folder_old"] = (
-                                keep["path"]
-                                .split("/", 1)[0]
-                            )
-
-                            if item["token_type"] == "year":
-
-                                item["folder_new"] = (
-                                    item["clean_title"]
-                                )
-
-                            elif item["token_type"] == "se":
-
-                                item["folder_new"] = (
-                                    item["season"]
-                                )
-
-                            else:
-
-                                item["folder_new"] = (
-                                    item["category"]
-                                )
-
-                        if len(candidates) == 1:
-
-                            item["file_old"] = keep["path"]
-
-                            ext = os.path.splitext(
-                                keep["filename"]
-                            )[1]
-
-                            if "/" in keep["path"]:
-
-                                current_folder = (
-                                    keep["path"]
-                                    .rsplit("/", 1)[0]
-                                )
-
-                                item["file_new"] = (
-                                    f"{current_folder}/"
-                                    f"{item['rename_name']}"
-                                    f"{ext}"
-                                )
-
-                            else:
-
-                                item["file_new"] = (
-                                    f"{item['rename_name']}"
-                                    f"{ext}"
-                                )
-
-                    _LOGGER.warning(
-                        "[QBIT] keep_files=%s drop_files=%s",
-                        len(item["keep_files"]),
-                        len(item["drop_files"]),
-                    )
-
-                #
-                # priorities_request
-                #
-                if (
-                    item["metadata_ready"]
-                    and not item["priorities_requested"]
-                ):
-
-                    _LOGGER.warning(
-                        "[QBIT] stage=priorities_request hash=%s",
-                        torrent_hash,
-                    )
-
-                    drop_ids = [
-                        f["id"]
-                        for f in item["drop_files"]
-                    ]
-
-                    ok = await set_file_priorities(
-                        item["base"],
-                        torrent_hash,
-                        drop_ids,
-                        0,
-                    )
-
-                    _LOGGER.warning(
-                        "[QBIT] filePrio ok=%s drop_ids=%s",
-                        ok,
-                        drop_ids,
-                    )
-
-                    if ok:
-                        item["priorities_requested"] = True
-
-                    continue
-
-                #
-                # priorities_verify
-                #
-                if (
-                    item["priorities_requested"]
-                    and not item["priorities_verified"]
-                ):
-
-                    _LOGGER.warning(
-                        "[QBIT] stage=priorities_verify hash=%s",
-                        torrent_hash,
-                    )
-
-                    item["priorities_verified"] = True
-
-                    continue
 
                 #
                 # folder_request
@@ -708,7 +582,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 # file_request
                 #
                 if (
-                    len(item["keep_files"]) == 1
+                    item["file_old"]
+                    and item["file_new"]
                     and not item["file_requested"]
                 ):
 
@@ -900,6 +775,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         "folder_verified": False,
                         "file_requested": False,
                         "file_verified": False,
+                        "renamed": False,
                         "files": [],
                         "keep_files": [],
                         "drop_files": [],
