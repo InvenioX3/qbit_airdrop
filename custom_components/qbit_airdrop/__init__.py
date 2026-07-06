@@ -157,25 +157,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async def process_torrent(
         base: str,
         torrent_hash: str,
-        keep_files,
         folder_old: str,
         folder_new: str,
     ) -> bool:
 
         try:
 
-            if not keep_files:
-                return False
-            
-            folder_source = None
-
-            if keep_files:
-                folder_source = keep_files[0]["path"]
-
             if (
-                folder_source
-                and "/" in folder_source
+                not folder_old
+                or not folder_new
             ):
+                return False
 
                 async with session.post(
                     f"{base}/api/v2/torrents/renameFolder",
@@ -496,8 +488,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 # folder_request
                 #
                 if (
-                    item["priorities_verified"]
-                    and item["folder_old"]
+                    item["folder_old"]
+                    and item["folder_new"]
                     and not item["folder_requested"]
                 ):
 
@@ -509,7 +501,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     ok = await process_torrent(
                         item["base"],
                         torrent_hash,
-                        item["keep_files"],
                         item["folder_old"],
                         item["folder_new"],
                     )
@@ -602,6 +593,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     if ok:
                         item["file_requested"] = True
                         item["file_verified"] = True
+                        item["renamed"] = True
 
                     continue
 
