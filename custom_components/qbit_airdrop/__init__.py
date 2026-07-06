@@ -549,6 +549,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 if (
                     item["file_old"]
                     and item["file_new"]
+                    and item["token_type"] not in (
+                        "s",
+                        "season",
+                        "complete",
+                    )
                     and not item["file_requested"]
                 ):
 
@@ -567,6 +572,31 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     if ok:
                         item["file_requested"] = True
                         item["file_verified"] = True
+
+                    continue
+
+                #
+                # file_skip
+                #
+                if (
+                    item["file_old"]
+                    and item["file_new"]
+                    and item["token_type"] in (
+                        "s",
+                        "season",
+                        "complete",
+                    )
+                    and not item["file_requested"]
+                ):
+
+                    item["file_requested"] = True
+                    item["file_verified"] = True
+
+                    _LOGGER.warning(
+                        "[QBIT] file_skip hash=%s token_type=%s",
+                        torrent_hash,
+                        item["token_type"],
+                    )
 
                     continue
 
