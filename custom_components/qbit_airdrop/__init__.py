@@ -56,6 +56,22 @@ async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
 ) -> bool:
+    from .http import QbitAirdropActiveView, QbitAirdropDeleteView
+
+    hass.http.register_view(
+        QbitAirdropActiveView(
+            hass,
+            entry,
+        )
+    )
+
+    hass.http.register_view(
+        QbitAirdropDeleteView(
+            hass,
+            entry,
+        )
+    )
+
     session = aiohttp_client.async_get_clientsession(hass)
 
     async def add_magnet(call: ServiceCall) -> None:
