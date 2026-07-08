@@ -3,10 +3,11 @@ from __future__ import annotations
 import logging
 from typing import Tuple
 from urllib.parse import urlparse
-
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import aiohttp_client
+import base64
+import re
 
 from .const import (
     DOMAIN,
@@ -44,6 +45,67 @@ def _resolve_base(entry: ConfigEntry) -> Tuple[str]:
 
     return (f"{parsed.scheme}://{netloc}:{port}".rstrip("/"),)
 
+_BTIH_HEX_RE = re.compile(r"btih:([A-Fa-f0-9]{40})")
+_BTIH_B32_RE = re.compile(r"btih:([A-Za-z2-7]{32})")
+
+
+def _extract_hash(magnet: str) -> str:
+    match = _BTIH_HEX_RE.search(magnet)
+    if match:
+        return match.group(1).lower()
+
+    match = _BTIH_B32_RE.search(magnet)
+    if match:
+        return base64.b32decode(match.group(1).upper()).hex()
+
+    return ""
+
+
+async def _fetch_index(session, base: str, torrent_hash: str) -> dict | None:
+    async with session.get(
+        f"{base}/api/v2/torrents/files",
+        params={"hash": torrent_hash},
+        timeout=15,
+    ) as resp:
+        if resp.status != 200:
+            return None
+        files_raw = await resp.json(content_type=None)
+
+    if not files_raw:
+        return None
+
+    async with session.get(
+        f"{base}/api/v2/torrents/info",
+        params={"hashes": torrent_hash},
+        timeout=15,
+    ) as resp:
+        info_raw = await resp.json(content_type=None) if resp.status == 200 else []
+
+    save_path = str(info_raw[0].get("save_path") or "") if info_raw else ""
+
+    files = []
+    folders = set()
+
+    for entry in files_raw:
+        path = str(entry.get("name") or "")
+        if not path:
+            continue
+
+        files.append({
+            "path": path,
+            "size": entry.get("size"),
+        })
+
+        parts = path.split("/")[:-1]
+        for i in range(1, len(parts) + 1):
+            folders.add("/".join(parts[:i]))
+
+    return {
+        "hash": torrent_hash,
+        "save_path": save_path,
+        "files": files,
+        "folders": sorted(folders),
+    }
 
 async def async_setup(
     hass: HomeAssistant,
