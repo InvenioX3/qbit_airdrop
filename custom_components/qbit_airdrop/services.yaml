@@ -1,67 +1,47 @@
 add_magnet:
-  name: Add magnet
-  description: Add a magnet link to qBittorrent.
   fields:
     magnet:
-      name: Magnet
-      description: Magnet URI to add.
       required: true
       example: "magnet:?xt=urn:btih:..."
       selector:
         text:
 
     category:
-      name: Category
-      description: Optional qBittorrent category provided by the card.
       required: false
       selector:
         text:
 
     clean_title:
-      name: Clean title
-      description: Optional cleaned title provided by the card.
       required: false
       selector:
         text:
 
     rename_name:
-      name: Rename name
-      description: Optional rename target provided by the card.
       required: false
       selector:
         text:
 
     token_type:
-      name: Token type
-      description: Optional title token type provided by the card.
       required: false
       selector:
         text:
 
     season:
-      name: Season
-      description: Optional season token provided by the card.
       required: false
       selector:
         text:
 
     res:
-      name: Resolution
-      description: Optional resolution detected by the card.
       required: false
       selector:
         text:
 
     codec:
-      name: Codec
-      description: Optional codec detected by the card.
       required: false
       selector:
         text:
 
     audio:
-      name: Audio
-      description: Optional audio format detected by the card.
       required: false
       selector:
         text:
