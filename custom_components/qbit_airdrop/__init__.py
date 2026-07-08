@@ -27,7 +27,8 @@ _POLL_INTERVAL = timedelta(seconds=15)
 _BTIH_HEX_RE = re.compile(r"btih:([A-Fa-f0-9]{40})")
 _BTIH_B32_RE = re.compile(r"btih:([A-Za-z2-7]{32})")
 
-_SEASON_FOLDER_RE = re.compile(r"^(?:S\d{1,2}|Season\s*\d{1,2})$", re.I)
+_SEASON_TOKEN_RE = re.compile(r"\bS(\d{1,2})\b(?!-\d)", re.I)
+_SEASON_WORD_RE = re.compile(r"\bSeason\s*(\d{1,2})\b", re.I)
 
 _VIDEO_EXTS = {
     ".mkv", ".mp4", ".avi", ".m4v", ".mov", ".ts", ".m2ts", ".wmv",
@@ -83,20 +84,18 @@ def _is_video(path: str) -> bool:
     return os.path.splitext(path)[1].lower() in _VIDEO_EXTS
 
 
-def _is_season_folder(name: str) -> bool:
-    return bool(_SEASON_FOLDER_RE.match(name.strip()))
-
-
-def _normalize_season_folder(name: str) -> str:
-    digits = re.search(r"\d{1,2}", name)
-    return f"S{int(digits.group()):02d}" if digits else ""
+def _detect_season(name: str) -> str:
+    match = _SEASON_TOKEN_RE.search(name)
+    if not match:
+        match = _SEASON_WORD_RE.search(name)
+    return f"S{int(match.group(1)):02d}" if match else ""
 
 
 def _file_in_season_folder(path: str) -> bool:
     if "/" not in path:
         return False
     parent_leaf = path.rsplit("/", 1)[0].rsplit("/", 1)[-1]
-    return _is_season_folder(parent_leaf)
+    return bool(_detect_season(parent_leaf))
 
 
 def _root_folder(folders: list[str]) -> str:
@@ -296,18 +295,10 @@ async def _process_queue_item(session, base, base_path, torrent_hash, meta, inde
         await _set_location(session, base, torrent_hash, location)
 
     elif token_type in ("s", "season"):
-        for folder in folders:
-            leaf = folder.rsplit("/", 1)[-1]
-            if not _is_season_folder(leaf):
-                continue
-            normalized = _normalize_season_folder(leaf)
-            if not normalized or normalized == leaf:
-                continue
-            parent = folder.rsplit("/", 1)[0] if "/" in folder else ""
-            new_path = f"{parent}/{normalized}" if parent else normalized
-            await _rename_folder(session, base, torrent_hash, folder, new_path)
+        if root_folder:
+            await _rename_folder(session, base, torrent_hash, root_folder, season)
 
-        keep_ids = {f["id"] for f in videos if _file_in_season_folder(f["path"])}
+        keep_ids = {f["id"] for f in videos}
         await _apply_file_priorities(session, base, torrent_hash, files, keep_ids)
         await _set_location(session, base, torrent_hash, _build_location(base_path, category))
 
@@ -319,9 +310,7 @@ async def _process_queue_item(session, base, base_path, torrent_hash, meta, inde
             if folder == root_folder:
                 continue
             leaf = folder.rsplit("/", 1)[-1]
-            if not _is_season_folder(leaf):
-                continue
-            normalized = _normalize_season_folder(leaf)
+            normalized = _detect_season(leaf)
             if not normalized or normalized == leaf:
                 continue
             parent = folder.rsplit("/", 1)[0]
@@ -333,7 +322,14 @@ async def _process_queue_item(session, base, base_path, torrent_hash, meta, inde
 
         keep_ids = {f["id"] for f in videos if _file_in_season_folder(f["path"])}
         await _apply_file_priorities(session, base, torrent_hash, files, keep_ids)
-        await _set_location(session, base, torrent_hash, _build_location(base_path, category))
+
+        # Root folder was just renamed to `category` itself — setLocation only
+        # needs base_path, or the move produces base_path/category/category/...
+        location = (
+            _build_location(base_path)
+            if root_folder else _build_location(base_path, category)
+        )
+        await _set_location(session, base, torrent_hash, location)
 
     else:
         _LOGGER.warning(
