@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import base64
 import logging
+import re
+from datetime import timedelta
 from typing import Tuple
 from urllib.parse import urlparse
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import aiohttp_client
-import base64
-import re
+from homeassistant.helpers.event import async_track_time_interval
 
 from .const import (
     DOMAIN,
@@ -16,6 +19,11 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+_POLL_INTERVAL = timedelta(seconds=15)
+
+_BTIH_HEX_RE = re.compile(r"btih:([A-Fa-f0-9]{40})")
+_BTIH_B32_RE = re.compile(r"btih:([A-Za-z2-7]{32})")
 
 
 def _resolve_base(entry: ConfigEntry) -> Tuple[str]:
@@ -44,9 +52,6 @@ def _resolve_base(entry: ConfigEntry) -> Tuple[str]:
         return (f"{parsed.scheme}://{netloc}".rstrip("/"),)
 
     return (f"{parsed.scheme}://{netloc}:{port}".rstrip("/"),)
-
-_BTIH_HEX_RE = re.compile(r"btih:([A-Fa-f0-9]{40})")
-_BTIH_B32_RE = re.compile(r"btih:([A-Za-z2-7]{32})")
 
 
 def _extract_hash(magnet: str) -> str:
@@ -107,6 +112,7 @@ async def _fetch_index(session, base: str, torrent_hash: str) -> dict | None:
         "folders": sorted(folders),
     }
 
+
 async def async_setup(
     hass: HomeAssistant,
     config,
@@ -135,6 +141,11 @@ async def async_setup_entry(
     )
 
     session = aiohttp_client.async_get_clientsession(hass)
+
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
+        "queue": set(),
+        "index": {},
+    }
 
     async def add_magnet(call: ServiceCall) -> None:
         data = call.data or {}
@@ -177,6 +188,37 @@ async def async_setup_entry(
                 body[:200],
             )
 
+            status_ok = resp.status == 200
+
+        if status_ok:
+            torrent_hash = _extract_hash(magnet)
+            if torrent_hash:
+                hass.data[DOMAIN][entry.entry_id]["queue"].add(torrent_hash)
+
+    async def _poll_queue(now) -> None:
+        store = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+        if not store:
+            return
+
+        queue = store["queue"]
+        if not queue:
+            return
+
+        base, = _resolve_base(entry)
+        if not base:
+            return
+
+        for torrent_hash in list(queue):
+            index = await _fetch_index(session, base, torrent_hash)
+            if index is None:
+                continue
+
+            store["index"][torrent_hash] = index
+            queue.discard(torrent_hash)
+
+    unsub = async_track_time_interval(hass, _poll_queue, _POLL_INTERVAL)
+    hass.data[DOMAIN][entry.entry_id]["unsub_poll"] = unsub
+
     hass.services.async_register(
         DOMAIN,
         "add_magnet",
@@ -194,5 +236,11 @@ async def async_unload_entry(
         DOMAIN,
         "add_magnet",
     )
+
+    store = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+    if store is not None:
+        unsub = store.get("unsub_poll")
+        if unsub is not None:
+            unsub()
 
     return True
