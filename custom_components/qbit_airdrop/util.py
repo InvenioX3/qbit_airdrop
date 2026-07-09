@@ -8,9 +8,7 @@ from homeassistant.config_entries import ConfigEntry
 from .const import CONF_HOST, CONF_PORT
 
 
-def resolve_base(entry: ConfigEntry) -> Tuple[str]:
-    data = entry.options or entry.data or {}
-
+def base_from_data(data: dict) -> Tuple[str]:
     host = (
         data.get(CONF_HOST)
         or ""
@@ -34,3 +32,7 @@ def resolve_base(entry: ConfigEntry) -> Tuple[str]:
         return (f"{parsed.scheme}://{netloc}".rstrip("/"),)
 
     return (f"{parsed.scheme}://{netloc}:{port}".rstrip("/"),)
+
+
+def resolve_base(entry: ConfigEntry) -> Tuple[str]:
+    return base_from_data(entry.options or entry.data or {})

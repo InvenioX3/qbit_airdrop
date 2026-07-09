@@ -3,8 +3,10 @@ from __future__ import annotations
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import DOMAIN, CONF_HOST, CONF_PORT, CONF_BASE_PATH, CONF_CONFIRM_DELETE
+from .util import base_from_data
 
 
 def _build_schema(defaults: dict) -> vol.Schema:
@@ -28,6 +30,19 @@ def _normalize_input(user_input: dict) -> dict | None:
     return normalized
 
 
+async def _can_connect(hass, data: dict) -> bool:
+    (base,) = base_from_data(data)
+    if not base:
+        return False
+
+    session = async_get_clientsession(hass)
+    try:
+        async with session.get(f"{base}/api/v2/app/version", timeout=5) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+
 class QbitAirdropConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
@@ -37,6 +52,8 @@ class QbitAirdropConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             normalized = _normalize_input(user_input)
             if normalized is None:
                 errors["base"] = "invalid_host_port"
+            elif not await _can_connect(self.hass, normalized):
+                errors["base"] = "cannot_connect"
             else:
                 return self.async_create_entry(title="Qbit Airdrop", data=normalized)
 
@@ -60,6 +77,8 @@ class QbitAirdropOptionsFlow(config_entries.OptionsFlow):
             normalized = _normalize_input(user_input)
             if normalized is None:
                 errors["base"] = "invalid_host_port"
+            elif not await _can_connect(self.hass, normalized):
+                errors["base"] = "cannot_connect"
             else:
                 return self.async_create_entry(title="", data=normalized)
 

@@ -1,0 +1,37 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Qbit Airdrop",
+        "description": "Connect to your qBittorrent WebUI. This integration assumes WebUI authentication is disabled.",
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "base_path": "Default save path (optional)",
+          "confirm_delete": "Confirm before deleting a torrent and its files"
+        }
+      }
+    },
+    "error": {
+      "invalid_host_port": "Host is required and port must be a positive number.",
+      "cannot_connect": "Could not reach qBittorrent at that host and port. Check that the WebUI is enabled and reachable."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Qbit Airdrop Options",
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "base_path": "Default save path (optional)",
+          "confirm_delete": "Confirm before deleting a torrent and its files"
+        }
+      }
+    },
+    "error": {
+      "invalid_host_port": "Host is required and port must be a positive number.",
+      "cannot_connect": "Could not reach qBittorrent at that host and port. Check that the WebUI is enabled and reachable."
+    }
+  }
+}

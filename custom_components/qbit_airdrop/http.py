@@ -10,6 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
+from .const import DOMAIN
 from .util import resolve_base as _resolve_base
 
 _LOGGER = logging.getLogger(__name__)
@@ -115,5 +116,14 @@ class QbitAirdropDeleteView(HomeAssistantView):
         except ClientError as err:
             _LOGGER.error("qB POST error: %s", err)
             return web.json_response({"ok": False, "error": "Request error"}, status=502)
+
+        store = self.hass.data.get(DOMAIN, {}).get(self.entry.entry_id)
+        if store is not None:
+            removed = store["queue"].pop(thash, None)
+            if removed is not None:
+                _LOGGER.debug(
+                    "[QBIT] removed hash=%s from pending queue after delete",
+                    thash,
+                )
 
         return web.json_response({"ok": True})
