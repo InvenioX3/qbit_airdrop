@@ -125,14 +125,18 @@ def _build_location(base_path: str, *parts: str) -> str:
 
 
 async def _fetch_index(session, base: str, torrent_hash: str) -> dict | None:
-    async with session.get(
-        f"{base}/api/v2/torrents/files",
-        params={"hash": torrent_hash},
-        timeout=15,
-    ) as resp:
-        if resp.status != 200:
-            return None
-        files_raw = await resp.json(content_type=None)
+    try:
+        async with session.get(
+            f"{base}/api/v2/torrents/files",
+            params={"hash": torrent_hash},
+            timeout=15,
+        ) as resp:
+            if resp.status != 200:
+                return None
+            files_raw = await resp.json(content_type=None)
+    except Exception:
+        _LOGGER.exception("[QBIT] fetch index request error hash=%s", torrent_hash)
+        return None
 
     if not files_raw:
         return None
@@ -165,17 +169,24 @@ async def _rename_folder(session, base, torrent_hash, old_path, new_path) -> boo
     if not old_path or not new_path or old_path == new_path:
         return True
 
-    async with session.post(
-        f"{base}/api/v2/torrents/renameFolder",
-        data={"hash": torrent_hash, "oldPath": old_path, "newPath": new_path},
-        timeout=10,
-    ) as resp:
-        if resp.status >= 400:
-            _LOGGER.warning(
-                "[QBIT] renameFolder failed status=%s old=%s new=%s",
-                resp.status, old_path, new_path,
-            )
-            return False
+    try:
+        async with session.post(
+            f"{base}/api/v2/torrents/renameFolder",
+            data={"hash": torrent_hash, "oldPath": old_path, "newPath": new_path},
+            timeout=10,
+        ) as resp:
+            if resp.status >= 400:
+                _LOGGER.warning(
+                    "[QBIT] renameFolder failed status=%s old=%s new=%s",
+                    resp.status, old_path, new_path,
+                )
+                return False
+    except Exception:
+        _LOGGER.exception(
+            "[QBIT] renameFolder request error old=%s new=%s",
+            old_path, new_path,
+        )
+        return False
 
     return True
 
@@ -184,17 +195,24 @@ async def _rename_file(session, base, torrent_hash, old_path, new_path) -> bool:
     if not old_path or not new_path or old_path == new_path:
         return True
 
-    async with session.post(
-        f"{base}/api/v2/torrents/renameFile",
-        data={"hash": torrent_hash, "oldPath": old_path, "newPath": new_path},
-        timeout=10,
-    ) as resp:
-        if resp.status >= 400:
-            _LOGGER.warning(
-                "[QBIT] renameFile failed status=%s old=%s new=%s",
-                resp.status, old_path, new_path,
-            )
-            return False
+    try:
+        async with session.post(
+            f"{base}/api/v2/torrents/renameFile",
+            data={"hash": torrent_hash, "oldPath": old_path, "newPath": new_path},
+            timeout=10,
+        ) as resp:
+            if resp.status >= 400:
+                _LOGGER.warning(
+                    "[QBIT] renameFile failed status=%s old=%s new=%s",
+                    resp.status, old_path, new_path,
+                )
+                return False
+    except Exception:
+        _LOGGER.exception(
+            "[QBIT] renameFile request error old=%s new=%s",
+            old_path, new_path,
+        )
+        return False
 
     return True
 
@@ -203,17 +221,24 @@ async def _set_location(session, base, torrent_hash, location) -> bool:
     if not location:
         return True
 
-    async with session.post(
-        f"{base}/api/v2/torrents/setLocation",
-        data={"hashes": torrent_hash, "location": location},
-        timeout=10,
-    ) as resp:
-        if resp.status >= 400:
-            _LOGGER.warning(
-                "[QBIT] setLocation failed status=%s location=%s",
-                resp.status, location,
-            )
-            return False
+    try:
+        async with session.post(
+            f"{base}/api/v2/torrents/setLocation",
+            data={"hashes": torrent_hash, "location": location},
+            timeout=10,
+        ) as resp:
+            if resp.status >= 400:
+                _LOGGER.warning(
+                    "[QBIT] setLocation failed status=%s location=%s",
+                    resp.status, location,
+                )
+                return False
+    except Exception:
+        _LOGGER.exception(
+            "[QBIT] setLocation request error location=%s",
+            location,
+        )
+        return False
 
     return True
 
@@ -222,37 +247,45 @@ async def _set_file_priority(session, base, torrent_hash, file_ids, priority) ->
     if not file_ids:
         return True
 
-    async with session.post(
-        f"{base}/api/v2/torrents/filePrio",
-        data={
-            "hash": torrent_hash,
-            "id": "|".join(str(i) for i in file_ids),
-            "priority": priority,
-        },
-        timeout=10,
-    ) as resp:
-        if resp.status >= 400:
-            _LOGGER.warning(
-                "[QBIT] filePrio failed status=%s ids=%s",
-                resp.status, file_ids,
-            )
-            return False
+    try:
+        async with session.post(
+            f"{base}/api/v2/torrents/filePrio",
+            data={
+                "hash": torrent_hash,
+                "id": "|".join(str(i) for i in file_ids),
+                "priority": priority,
+            },
+            timeout=10,
+        ) as resp:
+            if resp.status >= 400:
+                _LOGGER.warning(
+                    "[QBIT] filePrio failed status=%s ids=%s",
+                    resp.status, file_ids,
+                )
+                return False
+    except Exception:
+        _LOGGER.exception("[QBIT] filePrio request error ids=%s", file_ids)
+        return False
 
     return True
 
 
 async def _start_torrent(session, base, torrent_hash) -> bool:
-    async with session.post(
-        f"{base}/api/v2/torrents/start",
-        data={"hashes": torrent_hash},
-        timeout=10,
-    ) as resp:
-        if resp.status >= 400:
-            _LOGGER.warning(
-                "[QBIT] start failed status=%s hash=%s",
-                resp.status, torrent_hash,
-            )
-            return False
+    try:
+        async with session.post(
+            f"{base}/api/v2/torrents/start",
+            data={"hashes": torrent_hash},
+            timeout=10,
+        ) as resp:
+            if resp.status >= 400:
+                _LOGGER.warning(
+                    "[QBIT] start failed status=%s hash=%s",
+                    resp.status, torrent_hash,
+                )
+                return False
+    except Exception:
+        _LOGGER.exception("[QBIT] start request error hash=%s", torrent_hash)
+        return False
 
     return True
 
