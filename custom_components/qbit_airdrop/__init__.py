@@ -25,7 +25,7 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 _POLL_INTERVAL = timedelta(seconds=15)
-_COMMAND_DELAY = 0.25
+_COMMAND_DELAY = 0.50
 
 _BTIH_HEX_RE = re.compile(r"btih:([A-Fa-f0-9]{40})")
 _BTIH_B32_RE = re.compile(r"btih:([A-Za-z2-7]{32})")
