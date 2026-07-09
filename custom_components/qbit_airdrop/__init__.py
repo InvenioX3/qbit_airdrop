@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import os
 import re
@@ -167,6 +168,10 @@ async def _fetch_index(session, base: str, torrent_hash: str) -> dict | None:
 
 async def _rename_folder(session, base, torrent_hash, old_path, new_path) -> bool:
     if not old_path or not new_path or old_path == new_path:
+        _LOGGER.warning(
+            "[QBIT] renameFolder skipped old=%r new=%r",
+            old_path, new_path,
+        )
         return True
 
     try:
@@ -188,11 +193,19 @@ async def _rename_folder(session, base, torrent_hash, old_path, new_path) -> boo
         )
         return False
 
+    _LOGGER.warning(
+        "[QBIT] renameFolder ok old=%s new=%s",
+        old_path, new_path,
+    )
     return True
 
 
 async def _rename_file(session, base, torrent_hash, old_path, new_path) -> bool:
     if not old_path or not new_path or old_path == new_path:
+        _LOGGER.warning(
+            "[QBIT] renameFile skipped old=%r new=%r",
+            old_path, new_path,
+        )
         return True
 
     try:
@@ -214,6 +227,10 @@ async def _rename_file(session, base, torrent_hash, old_path, new_path) -> bool:
         )
         return False
 
+    _LOGGER.warning(
+        "[QBIT] renameFile ok old=%s new=%s",
+        old_path, new_path,
+    )
     return True
 
 
@@ -307,6 +324,12 @@ async def _process_queue_item(session, base, base_path, torrent_hash, meta, inde
 
     videos = [f for f in files if _is_video(f["path"])]
     largest = max(videos, key=lambda f: f["size"]) if videos else None
+
+    _LOGGER.warning(
+        "[QBIT] process hash=%s token_type=%r category=%r videos=%s largest=%r root_folder=%r",
+        torrent_hash, token_type, category, len(videos),
+        largest["path"] if largest else None, root_folder,
+    )
 
     if not category:
         # Movie (token_type "year", or unclassified — no season signal at all)
@@ -488,9 +511,25 @@ async def async_setup_entry(
         if not status_ok:
             return
 
-        torrent_hash = _extract_hash(magnet)
+        torrent_hash = ""
+        try:
+            payload = json.loads(body)
+            added = payload.get("added_torrent_ids") or []
+            if added:
+                torrent_hash = str(added[0]).strip().lower()
+        except (ValueError, AttributeError):
+            pass
+
+        if not torrent_hash:
+            torrent_hash = _extract_hash(magnet)
+
         if not torrent_hash:
             return
+
+        _LOGGER.warning(
+            "[QBIT] add_magnet queued hash=%s",
+            torrent_hash,
+        )
 
         hass.data[DOMAIN][entry.entry_id]["queue"][torrent_hash] = {
             "category": category,
