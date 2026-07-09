@@ -25,7 +25,7 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 _POLL_INTERVAL = timedelta(seconds=15)
-_COMMAND_DELAY = 0.05
+_COMMAND_DELAY = 0.25
 
 _BTIH_HEX_RE = re.compile(r"btih:([A-Fa-f0-9]{40})")
 _BTIH_B32_RE = re.compile(r"btih:([A-Za-z2-7]{32})")
@@ -381,6 +381,10 @@ async def _process_queue_item(session, base, base_path, torrent_hash, meta, inde
         for f in videos:
             episode = _detect_episode(os.path.basename(f["path"]))
             if not episode:
+                _LOGGER.warning(
+                    "[QBIT] episode rename skipped (no SxxExx in filename) path=%s",
+                    f["path"],
+                )
                 continue
             ext = os.path.splitext(f["path"])[1]
             new_path = _sibling_path(f["path"], f"{category} {episode}{ext}")
@@ -397,9 +401,17 @@ async def _process_queue_item(session, base, base_path, torrent_hash, meta, inde
 
         for f in videos:
             if f["id"] not in keep_ids:
+                _LOGGER.warning(
+                    "[QBIT] episode rename skipped (folder not recognized as season) path=%s",
+                    f["path"],
+                )
                 continue
             episode = _detect_episode(os.path.basename(f["path"]))
             if not episode:
+                _LOGGER.warning(
+                    "[QBIT] episode rename skipped (no SxxExx in filename) path=%s",
+                    f["path"],
+                )
                 continue
             ext = os.path.splitext(f["path"])[1]
             new_path = _sibling_path(f["path"], f"{category} {episode}{ext}")
