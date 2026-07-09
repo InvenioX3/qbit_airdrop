@@ -29,6 +29,7 @@ _BTIH_B32_RE = re.compile(r"btih:([A-Za-z2-7]{32})")
 
 _SEASON_TOKEN_RE = re.compile(r"\bS(\d{1,2})\b(?!-\d)", re.I)
 _SEASON_WORD_RE = re.compile(r"\bSeason\s*(\d{1,2})\b", re.I)
+_EPISODE_TOKEN_RE = re.compile(r"\bS(\d{1,2})E(\d{1,3})\b", re.I)
 
 _VIDEO_EXTS = {
     ".mkv", ".mp4", ".avi", ".m4v", ".mov", ".ts", ".m2ts", ".wmv",
@@ -91,6 +92,14 @@ def _detect_season(name: str) -> str:
     return f"S{int(match.group(1)):02d}" if match else ""
 
 
+def _detect_episode(name: str) -> str:
+    match = _EPISODE_TOKEN_RE.search(name)
+    if not match:
+        return ""
+    season_num, episode_num = match.groups()
+    return f"S{int(season_num):02d}E{int(episode_num):02d}"
+
+
 def _file_in_season_folder(path: str) -> bool:
     if "/" not in path:
         return False
@@ -100,6 +109,13 @@ def _file_in_season_folder(path: str) -> bool:
 
 def _root_folder(folders: list[str]) -> str:
     return next((f for f in folders if "/" not in f), "")
+
+
+def _sibling_path(path: str, new_name: str) -> str:
+    if "/" in path:
+        parent = path.rsplit("/", 1)[0]
+        return f"{parent}/{new_name}"
+    return new_name
 
 
 def _build_location(base_path: str, *parts: str) -> str:
@@ -295,14 +311,35 @@ async def _process_queue_item(session, base, base_path, torrent_hash, meta, inde
         await _set_location(session, base, torrent_hash, location)
 
     elif token_type in ("s", "season"):
+        keep_ids = {f["id"] for f in videos}
+
+        for f in videos:
+            episode = _detect_episode(os.path.basename(f["path"]))
+            if not episode:
+                continue
+            ext = os.path.splitext(f["path"])[1]
+            new_path = _sibling_path(f["path"], f"{category} {episode}{ext}")
+            await _rename_file(session, base, torrent_hash, f["path"], new_path)
+
         if root_folder:
             await _rename_folder(session, base, torrent_hash, root_folder, season)
 
-        keep_ids = {f["id"] for f in videos}
         await _apply_file_priorities(session, base, torrent_hash, files, keep_ids)
         await _set_location(session, base, torrent_hash, _build_location(base_path, category))
 
     elif token_type == "complete":
+        keep_ids = {f["id"] for f in videos if _file_in_season_folder(f["path"])}
+
+        for f in videos:
+            if f["id"] not in keep_ids:
+                continue
+            episode = _detect_episode(os.path.basename(f["path"]))
+            if not episode:
+                continue
+            ext = os.path.splitext(f["path"])[1]
+            new_path = _sibling_path(f["path"], f"{category} {episode}{ext}")
+            await _rename_file(session, base, torrent_hash, f["path"], new_path)
+
         # Rename nested season folders first — root rename happens last so
         # their currently-indexed paths (still prefixed by the old root name)
         # stay valid when renameFolder is called.
@@ -320,7 +357,6 @@ async def _process_queue_item(session, base, base_path, torrent_hash, meta, inde
         if root_folder:
             await _rename_folder(session, base, torrent_hash, root_folder, category)
 
-        keep_ids = {f["id"] for f in videos if _file_in_season_folder(f["path"])}
         await _apply_file_priorities(session, base, torrent_hash, files, keep_ids)
 
         # Root folder was just renamed to `category` itself — setLocation only
