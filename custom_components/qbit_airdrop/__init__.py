@@ -32,7 +32,8 @@ _BTIH_B32_RE = re.compile(r"btih:([A-Za-z2-7]{32})")
 
 _SEASON_TOKEN_RE = re.compile(r"\bS(\d{1,2})\b(?!-\d)", re.I)
 _SEASON_WORD_RE = re.compile(r"\bSeason\s*(\d{1,2})\b", re.I)
-_EPISODE_TOKEN_RE = re.compile(r"\bS(\d{1,2})E(\d{1,3})\b", re.I)
+_EPISODE_TOKEN_RE = re.compile(r"\bS(\d{1,2})((?:E\d{1,3})+)\b", re.I)
+_EPISODE_NUM_RE = re.compile(r"E(\d{1,3})", re.I)
 
 _VIDEO_EXTS = {
     ".mkv", ".mp4", ".avi", ".m4v", ".mov", ".ts", ".m2ts", ".wmv",
@@ -99,8 +100,10 @@ def _detect_episode(name: str) -> str:
     match = _EPISODE_TOKEN_RE.search(name)
     if not match:
         return ""
-    season_num, episode_num = match.groups()
-    return f"S{int(season_num):02d}E{int(episode_num):02d}"
+    season_num = int(match.group(1))
+    episode_nums = [int(n) for n in _EPISODE_NUM_RE.findall(match.group(2))]
+    episodes = "".join(f"E{n:02d}" for n in episode_nums)
+    return f"S{season_num:02d}{episodes}"
 
 
 def _file_in_season_folder(path: str) -> bool:
