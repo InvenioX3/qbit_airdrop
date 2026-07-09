@@ -6,12 +6,27 @@ from homeassistant.core import callback
 
 from .const import DOMAIN, CONF_HOST, CONF_PORT, CONF_BASE_PATH, CONF_CONFIRM_DELETE
 
-BASE_SCHEMA = vol.Schema({
-    vol.Required(CONF_HOST): str,
-    vol.Optional(CONF_PORT, default=8080): int,
-    vol.Optional(CONF_BASE_PATH, default=""): str,  # optional
-    vol.Optional(CONF_CONFIRM_DELETE, default=False): bool,
-})
+
+def _build_schema(defaults: dict) -> vol.Schema:
+    return vol.Schema({
+        vol.Required(CONF_HOST, default=defaults.get(CONF_HOST, "")): str,
+        vol.Optional(CONF_PORT, default=defaults.get(CONF_PORT, 8080)): int,
+        vol.Optional(CONF_BASE_PATH, default=defaults.get(CONF_BASE_PATH, "")): str,
+        vol.Optional(CONF_CONFIRM_DELETE, default=defaults.get(CONF_CONFIRM_DELETE, False)): bool,
+    })
+
+
+def _normalize_input(user_input: dict) -> dict | None:
+    host = (user_input.get(CONF_HOST) or "").strip()
+    port = user_input.get(CONF_PORT)
+    if not host or not isinstance(port, int) or port <= 0:
+        return None
+
+    normalized = dict(user_input)
+    normalized[CONF_HOST] = host.strip("/")
+    normalized[CONF_BASE_PATH] = (user_input.get(CONF_BASE_PATH) or "").strip()
+    return normalized
+
 
 class QbitAirdropConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
@@ -19,23 +34,19 @@ class QbitAirdropConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(self, user_input=None):
         errors = {}
         if user_input is not None:
-            host = (user_input.get(CONF_HOST) or "").strip()
-            port = user_input.get(CONF_PORT)
-            base_path = (user_input.get(CONF_BASE_PATH) or "").strip()
-            if not host or not isinstance(port, int) or port <= 0:
+            normalized = _normalize_input(user_input)
+            if normalized is None:
                 errors["base"] = "invalid_host_port"
             else:
-                # normalize
-                user_input[CONF_HOST] = host.strip().strip("/")
-                user_input[CONF_BASE_PATH] = base_path
-                return self.async_create_entry(title="Qbit Airdrop", data=user_input)
+                return self.async_create_entry(title="Qbit Airdrop", data=normalized)
 
-        return self.async_show_form(step_id="user", data_schema=BASE_SCHEMA, errors=errors)
+        return self.async_show_form(step_id="user", data_schema=_build_schema({}), errors=errors)
 
     @staticmethod
     @callback
     def async_get_options_flow(config_entry):
         return QbitAirdropOptionsFlow(config_entry)
+
 
 class QbitAirdropOptionsFlow(config_entries.OptionsFlow):
     def __init__(self, entry: config_entries.ConfigEntry) -> None:
@@ -43,22 +54,13 @@ class QbitAirdropOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_init(self, user_input=None):
         errors = {}
-        d = {**self._entry.data, **(self._entry.options or {})}
-        schema = vol.Schema({
-            vol.Required(CONF_HOST, default=(d.get(CONF_HOST) or "")): str,
-            vol.Optional(CONF_PORT, default=int(d.get(CONF_PORT) or 8080)): int,
-            vol.Optional(CONF_BASE_PATH, default=(d.get(CONF_BASE_PATH) or "")): str,
-            vol.Optional(CONF_CONFIRM_DELETE, default=bool(d.get(CONF_CONFIRM_DELETE, False))): bool,
-        })
+        defaults = {**self._entry.data, **(self._entry.options or {})}
+
         if user_input is not None:
-            host = (user_input.get(CONF_HOST) or "").strip()
-            port = user_input.get(CONF_PORT)
-            base_path = (user_input.get(CONF_BASE_PATH) or "").strip()
-            if not host or not isinstance(port, int) or port <= 0:
+            normalized = _normalize_input(user_input)
+            if normalized is None:
                 errors["base"] = "invalid_host_port"
             else:
-                user_input[CONF_HOST] = host.strip().strip("/")
-                user_input[CONF_BASE_PATH] = base_path
-                return self.async_create_entry(title="", data=user_input)
+                return self.async_create_entry(title="", data=normalized)
 
-        return self.async_show_form(step_id="init", data_schema=schema, errors=errors)
+        return self.async_show_form(step_id="init", data_schema=_build_schema(defaults), errors=errors)

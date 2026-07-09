@@ -1,1 +1,39 @@
-add_magnet: {}
+add_magnet:
+  name: Add magnet
+  description: Submit a magnet link to qBittorrent for download and automatic organization.
+  fields:
+    magnet:
+      name: Magnet link
+      description: The magnet URI to submit.
+      required: true
+      example: "magnet:?xt=urn:btih:..."
+      selector:
+        text: {}
+    category:
+      name: Category
+      description: Series name used as the qBittorrent category. Leave blank for movies.
+      required: false
+      selector:
+        text: {}
+    rename_name:
+      name: Rename target
+      description: Cleaned title used to rename the downloaded file and/or folder.
+      required: false
+      selector:
+        text: {}
+    token_type:
+      name: Token type
+      description: Release classification — one of "se", "s", "season", "complete", "year", or blank.
+      required: false
+      selector:
+        text: {}
+    season:
+      name: Season
+      description: Normalized season code (e.g. "S03"), when applicable.
+      required: false
+      selector:
+        text: {}
+
+reload_entry:
+  name: Reload entry
+  description: Force a reload of the Qbit Airdrop config entry.

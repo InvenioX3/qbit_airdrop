@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import List, Tuple
-from urllib.parse import urlparse
+from typing import List
 
 from aiohttp import ClientError, web
 from homeassistant.components.http import HomeAssistantView
@@ -11,26 +10,9 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import CONF_HOST, CONF_PORT
+from .util import resolve_base as _resolve_base
 
 _LOGGER = logging.getLogger(__name__)
-
-
-def _resolve_base(entry: ConfigEntry) -> Tuple[str]:
-    d = entry.options or entry.data or {}
-    host = (d.get(CONF_HOST) or "").strip().strip("/")
-    port = int(d.get(CONF_PORT) or 8080)
-    if not host:
-        return ("",)
-    if "://" not in host:
-        base = f"http://{host}:{port}"
-    else:
-        parsed = urlparse(host)
-        netloc = parsed.netloc or parsed.path
-        base = f"{parsed.scheme}://{netloc}"
-        if ":" not in netloc:
-            base = f"{base}:{port}"
-    return (base.rstrip("/"),)
 
 
 class QbitAirdropActiveView(HomeAssistantView):
