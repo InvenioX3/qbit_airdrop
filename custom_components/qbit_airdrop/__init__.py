@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
@@ -24,6 +25,7 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 _POLL_INTERVAL = timedelta(seconds=15)
+_COMMAND_DELAY = 0.25
 
 _BTIH_HEX_RE = re.compile(r"btih:([A-Fa-f0-9]{40})")
 _BTIH_B32_RE = re.compile(r"btih:([A-Za-z2-7]{32})")
@@ -197,6 +199,7 @@ async def _rename_folder(session, base, torrent_hash, old_path, new_path) -> boo
         "[QBIT] renameFolder ok old=%s new=%s",
         old_path, new_path,
     )
+    await asyncio.sleep(_COMMAND_DELAY)
     return True
 
 
@@ -231,6 +234,7 @@ async def _rename_file(session, base, torrent_hash, old_path, new_path) -> bool:
         "[QBIT] renameFile ok old=%s new=%s",
         old_path, new_path,
     )
+    await asyncio.sleep(_COMMAND_DELAY)
     return True
 
 
@@ -257,6 +261,7 @@ async def _set_location(session, base, torrent_hash, location) -> bool:
         )
         return False
 
+    await asyncio.sleep(_COMMAND_DELAY)
     return True
 
 
@@ -284,6 +289,7 @@ async def _set_file_priority(session, base, torrent_hash, file_ids, priority) ->
         _LOGGER.exception("[QBIT] filePrio request error ids=%s", file_ids)
         return False
 
+    await asyncio.sleep(_COMMAND_DELAY)
     return True
 
 
@@ -304,6 +310,7 @@ async def _start_torrent(session, base, torrent_hash) -> bool:
         _LOGGER.exception("[QBIT] start request error hash=%s", torrent_hash)
         return False
 
+    await asyncio.sleep(_COMMAND_DELAY)
     return True
 
 
