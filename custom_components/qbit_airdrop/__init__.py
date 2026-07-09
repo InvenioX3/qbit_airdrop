@@ -14,6 +14,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import aiohttp_client
 from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.util import dt as dt_util
 
 from .const import (
     DOMAIN,
@@ -26,6 +27,9 @@ _LOGGER = logging.getLogger(__name__)
 
 _POLL_INTERVAL = timedelta(seconds=15)
 _COMMAND_DELAY = 0.25
+
+_LAGGARD_THRESHOLD = timedelta(minutes=10)
+_LAGGARD_INTERVAL = timedelta(minutes=30)
 
 _BTIH_HEX_RE = re.compile(r"btih:([A-Fa-f0-9]{40})")
 _BTIH_B32_RE = re.compile(r"btih:([A-Za-z2-7]{32})")
@@ -115,6 +119,21 @@ def _file_in_season_folder(path: str) -> bool:
 
 def _root_folder(folders: list[str]) -> str:
     return next((f for f in folders if "/" not in f), "")
+
+
+def _is_due(meta: dict, now) -> bool:
+    added_at = meta.get("added_at")
+    if added_at is None:
+        return True
+
+    if now - added_at < _LAGGARD_THRESHOLD:
+        return True
+
+    last_checked_at = meta.get("last_checked_at")
+    if last_checked_at is None:
+        return True
+
+    return now - last_checked_at >= _LAGGARD_INTERVAL
 
 
 def _sibling_path(path: str, new_name: str) -> str:
@@ -575,6 +594,8 @@ async def async_setup_entry(
             "res": (data.get("res") or "").strip(),
             "codec": (data.get("codec") or "").strip(),
             "audio": (data.get("audio") or "").strip(),
+            "added_at": dt_util.utcnow(),
+            "last_checked_at": None,
         }
 
     async def reload_entry(call: ServiceCall) -> None:
@@ -606,6 +627,11 @@ async def async_setup_entry(
         base_path = _resolve_base_path(entry)
 
         for torrent_hash, meta in list(queue.items()):
+            if not _is_due(meta, now):
+                continue
+
+            meta["last_checked_at"] = now
+
             index = await _fetch_index(session, base, torrent_hash)
             if index is None:
                 continue
