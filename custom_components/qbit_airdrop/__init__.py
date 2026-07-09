@@ -520,8 +520,16 @@ async def async_setup_entry(
         except (ValueError, AttributeError):
             pass
 
+        magnet_hash = _extract_hash(magnet)
+
+        if torrent_hash and magnet_hash and torrent_hash != magnet_hash:
+            _LOGGER.warning(
+                "[QBIT] hash mismatch added_torrent_ids=%s magnet_extracted=%s",
+                torrent_hash, magnet_hash,
+            )
+
         if not torrent_hash:
-            torrent_hash = _extract_hash(magnet)
+            torrent_hash = magnet_hash
 
         if not torrent_hash:
             return
