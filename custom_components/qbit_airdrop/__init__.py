@@ -471,6 +471,7 @@ async def async_setup_entry(
     )
 
     session = aiohttp_client.async_get_clientsession(hass)
+    poll_lock = asyncio.Lock()
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         "queue": {},
@@ -565,6 +566,16 @@ async def async_setup_entry(
         await hass.config_entries.async_reload(entry.entry_id)
 
     async def _poll_queue(now) -> None:
+        if poll_lock.locked():
+            _LOGGER.warning(
+                "[QBIT] poll tick skipped — previous pass still running",
+            )
+            return
+
+        async with poll_lock:
+            await _run_poll_pass(now)
+
+    async def _run_poll_pass(now) -> None:
         store = hass.data.get(DOMAIN, {}).get(entry.entry_id)
         if not store:
             return
