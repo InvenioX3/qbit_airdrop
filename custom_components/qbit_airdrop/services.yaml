@@ -34,6 +34,8 @@ add_magnet:
       selector:
         text: {}
 
-reload_entry:
-  name: Reload entry
-  description: Force a reload of the Qbit Airdrop config entry.
+flush_orphaned:
+  name: Flush orphaned queue entries
+  description: >-
+    Remove any torrents from the pending rename queue that no longer exist
+    in qBittorrent (e.g. deleted directly from the qBittorrent WebUI).

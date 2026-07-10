@@ -499,8 +499,41 @@ async def async_setup_entry(
             "last_checked_at": None,
         }
 
-    async def reload_entry(call: ServiceCall) -> None:
-        await hass.config_entries.async_reload(entry.entry_id)
+    async def flush_orphaned(call: ServiceCall) -> None:
+        store = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+        if not store:
+            return
+
+        queue = store["queue"]
+        if not queue:
+            return
+
+        base, = _resolve_base(entry)
+        if not base:
+            return
+
+        try:
+            async with session.get(
+                f"{base}/api/v2/torrents/info",
+                params={"filter": "all"},
+                timeout=10,
+            ) as resp:
+                if resp.status != 200:
+                    return
+                live = await resp.json(content_type=None)
+        except Exception:
+            _LOGGER.exception("[QBIT] flush_orphaned request error")
+            return
+
+        live_hashes = (
+            {str(t.get("hash") or "").lower() for t in live}
+            if isinstance(live, list) else set()
+        )
+
+        for torrent_hash in list(queue):
+            if torrent_hash not in live_hashes:
+                queue.pop(torrent_hash, None)
+                _LOGGER.debug("[QBIT] flush_orphaned removed hash=%s", torrent_hash)
 
     async def _poll_queue(now) -> None:
         if poll_lock.locked():
@@ -567,8 +600,8 @@ async def async_setup_entry(
 
     hass.services.async_register(
         DOMAIN,
-        "reload_entry",
-        reload_entry,
+        "flush_orphaned",
+        flush_orphaned,
     )
 
     return True
@@ -585,7 +618,7 @@ async def async_unload_entry(
 
     hass.services.async_remove(
         DOMAIN,
-        "reload_entry",
+        "flush_orphaned",
     )
 
     store = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)

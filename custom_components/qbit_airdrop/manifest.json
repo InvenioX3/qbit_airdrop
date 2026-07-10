@@ -11,5 +11,6 @@
   "issue_tracker": "https://github.com/InvenioX3/qbit_airdrop/issues",
   "name": "Qbit Airdrop",
   "requirements": [],
+  "single_config_entry": true,
   "version": "1.0.0"
 }
