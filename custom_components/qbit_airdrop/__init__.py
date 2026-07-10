@@ -303,9 +303,15 @@ async def _process_queue_item(session, base, base_path, torrent_hash, meta, inde
         ok &= await _set_location(session, base, torrent_hash, location)
 
     elif token_type in ("s", "season"):
-        keep_ids = {f["id"] for f in videos}
+        keep_ids = {f["id"] for f in videos if _file_in_season_folder(f["path"])}
 
         for f in videos:
+            if f["id"] not in keep_ids:
+                _LOGGER.debug(
+                    "[QBIT] episode rename skipped (folder not recognized as season) path=%s",
+                    f["path"],
+                )
+                continue
             episode = _detect_episode(os.path.basename(f["path"]))
             if not episode:
                 _LOGGER.debug(
