@@ -127,3 +127,45 @@ class QbitAirdropDeleteView(HomeAssistantView):
                 )
 
         return web.json_response({"ok": True})
+
+
+class QbitAirdropForceStartView(HomeAssistantView):
+    url = "/api/qbit_airdrop/force_start"
+    name = "qbit_airdrop:force_start"
+    requires_auth = True
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self.entry = entry
+
+    async def post(self, request) -> web.Response:
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "Invalid JSON"}, status=400)
+
+        thash = (data.get("hash") or "").strip().lower()
+        if not thash:
+            return web.json_response({"ok": False, "error": "hash required"}, status=400)
+
+        value = bool(data.get("value", True))
+        (base,) = _resolve_base(self.entry)
+        if not base:
+            return web.json_response({"ok": False, "error": "qB base not configured"}, status=400)
+
+        session = async_get_clientsession(self.hass)
+        try:
+            async with session.post(
+                f"{base}/api/v2/torrents/setForceStart",
+                data={"hashes": thash, "value": "true" if value else "false"},
+                timeout=15,
+            ) as resp:
+                if resp.status != 200:
+                    txt = await resp.text()
+                    _LOGGER.error("Force start failed: %s %s", resp.status, txt[:200])
+                    return web.json_response({"ok": False, "error": "Force start failed"}, status=resp.status)
+        except ClientError as err:
+            _LOGGER.error("qB POST error: %s", err)
+            return web.json_response({"ok": False, "error": "Request error"}, status=502)
+
+        return web.json_response({"ok": True})

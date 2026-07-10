@@ -393,7 +393,7 @@ async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
 ) -> bool:
-    from .http import QbitAirdropActiveView, QbitAirdropDeleteView
+    from .http import QbitAirdropActiveView, QbitAirdropDeleteView, QbitAirdropForceStartView
 
     hass.http.register_view(
         QbitAirdropActiveView(
@@ -404,6 +404,13 @@ async def async_setup_entry(
 
     hass.http.register_view(
         QbitAirdropDeleteView(
+            hass,
+            entry,
+        )
+    )
+
+    hass.http.register_view(
+        QbitAirdropForceStartView(
             hass,
             entry,
         )
