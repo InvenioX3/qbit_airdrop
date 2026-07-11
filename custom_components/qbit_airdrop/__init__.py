@@ -308,9 +308,9 @@ async def _process_stage1(session, base, base_path, torrent_hash, meta, index) -
     videos = [f for f in files if _is_video(f["path"])]
     largest = max(videos, key=lambda f: f["size"]) if videos else None
 
-    _LOGGER.debug(
-        "[QBIT] stage1 hash=%s token_type=%r category=%r videos=%s largest=%r root_folder=%r",
-        torrent_hash, token_type, category, len(videos),
+    _LOGGER.warning(
+        "[QBIT] stage1 hash=%s token_type=%r category=%r base_path=%r videos=%s largest=%r root_folder=%r",
+        torrent_hash, token_type, category, base_path, len(videos),
         largest["path"] if largest else None, root_folder,
     )
 
@@ -328,6 +328,7 @@ async def _process_stage1(session, base, base_path, torrent_hash, meta, index) -
                 _build_location(base_path, category)
                 if root_folder else _build_location(base_path, category, season)
             )
+            _LOGGER.warning("[QBIT] se setLocation target=%r", location)
             ok &= await _set_location(session, base, torrent_hash, location)
         # Movies: no setLocation, stays at qBittorrent's default location.
 
