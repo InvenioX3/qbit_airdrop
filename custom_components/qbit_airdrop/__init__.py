@@ -287,12 +287,18 @@ async def _rename_single_file(
     return ok
 
 
-async def _process_stage1(session, base, torrent_hash, meta, index) -> bool:
-    """Metadata is available: rename files, apply fileprio, start the
-    download. No folder rename or setLocation yet — those wait for stage 2,
-    once the torrent has actually finished downloading."""
+async def _process_stage1(session, base, base_path, torrent_hash, meta, index) -> bool:
+    """Metadata is available: rename files, apply fileprio, set the final
+    save location, and start the download — directly into that final
+    location, rather than downloading to the default path and moving
+    potentially many GB later. Folder rename is deferred to stage 2. It's
+    specifically the folder *rename* that risks collision (two different
+    torrents' distinct original names both mapping to the same generic
+    target, e.g. "S03") — the move itself is safe immediately, since
+    original release folder names are effectively always unique."""
     token_type = meta["token_type"]
     category = meta["category"]
+    season = meta["season"]
     rename_name = meta["rename_name"]
 
     files = index["files"]
@@ -317,6 +323,14 @@ async def _process_stage1(session, base, torrent_hash, meta, index) -> bool:
             session, base, torrent_hash, files, largest, root_folder, rename_name,
         )
 
+        if token_type == "se":
+            location = (
+                _build_location(base_path, category)
+                if root_folder else _build_location(base_path, category, season)
+            )
+            ok &= await _set_location(session, base, torrent_hash, location)
+        # Movies: no setLocation, stays at qBittorrent's default location.
+
     elif token_type in ("s", "season", "complete"):
         keep_ids = {f["id"] for f in videos if _file_in_season_folder(f["path"])}
 
@@ -340,6 +354,18 @@ async def _process_stage1(session, base, torrent_hash, meta, index) -> bool:
 
         ok &= await _apply_file_priorities(session, base, torrent_hash, files, keep_ids)
 
+        if token_type == "complete":
+            # Root folder will be renamed to `category` itself in stage 2 —
+            # setLocation only needs base_path, or the move produces
+            # base_path/category/category/... once that rename happens.
+            location = (
+                _build_location(base_path)
+                if root_folder else _build_location(base_path, category)
+            )
+        else:
+            location = _build_location(base_path, category)
+        ok &= await _set_location(session, base, torrent_hash, location)
+
     else:
         _LOGGER.warning(
             "[QBIT] unrecognized token_type=%s hash=%s — skipping rename pipeline",
@@ -351,9 +377,11 @@ async def _process_stage1(session, base, torrent_hash, meta, index) -> bool:
     return ok
 
 
-async def _process_stage2(session, base, base_path, torrent_hash, meta, index) -> bool:
-    """Torrent has finished downloading (uploading/stalledUP/forcedUP):
-    rename the folder(s) and set the final save location."""
+async def _process_stage2(session, base, torrent_hash, meta, index) -> bool:
+    """Torrent has finished downloading (uploading/stalledUP/forcedUP): the
+    torrent already sits at its final location (set in stage 1), so this
+    only renames the folder(s) now that it's safe to do so — no move
+    involved."""
     token_type = meta["token_type"]
     category = meta["category"]
     season = meta["season"]
@@ -365,22 +393,12 @@ async def _process_stage2(session, base, base_path, torrent_hash, meta, index) -
     ok = True
 
     if not category:
-        # Movie — no setLocation, stays at qBittorrent's default location.
         if root_folder:
             ok &= await _rename_folder(session, base, torrent_hash, root_folder, rename_name)
 
-    elif token_type == "se":
+    elif token_type in ("se", "s", "season"):
         if root_folder:
             ok &= await _rename_folder(session, base, torrent_hash, root_folder, season)
-            location = _build_location(base_path, category)
-        else:
-            location = _build_location(base_path, category, season)
-        ok &= await _set_location(session, base, torrent_hash, location)
-
-    elif token_type in ("s", "season"):
-        if root_folder:
-            ok &= await _rename_folder(session, base, torrent_hash, root_folder, season)
-        ok &= await _set_location(session, base, torrent_hash, _build_location(base_path, category))
 
     elif token_type == "complete":
         # Rename nested season folders first — root rename happens last so
@@ -399,14 +417,6 @@ async def _process_stage2(session, base, base_path, torrent_hash, meta, index) -
 
         if root_folder:
             ok &= await _rename_folder(session, base, torrent_hash, root_folder, category)
-
-        # Root folder was just renamed to `category` itself — setLocation only
-        # needs base_path, or the move produces base_path/category/category/...
-        location = (
-            _build_location(base_path)
-            if root_folder else _build_location(base_path, category)
-        )
-        ok &= await _set_location(session, base, torrent_hash, location)
 
     else:
         _LOGGER.warning(
@@ -603,11 +613,17 @@ async def async_setup_entry(
         base_path = _resolve_base_path(entry)
 
         for torrent_hash, meta in list(queue.items()):
-            if not _is_due(meta, now):
+            phase = meta.get("phase", "metadata")
+
+            # Laggard tiering only makes sense while waiting on metadata —
+            # a torrent that's gone quiet for a while genuinely might be
+            # dead. Once past stage 1 the torrent is actively downloading,
+            # not stalled, so it's checked every tick; the check itself is a
+            # single lightweight state lookup, not the heavier file listing.
+            if phase == "metadata" and not _is_due(meta, now):
                 continue
 
             meta["last_checked_at"] = now
-            phase = meta.get("phase", "metadata")
 
             try:
                 if phase == "metadata":
@@ -615,7 +631,9 @@ async def async_setup_entry(
                     if index is None:
                         continue
 
-                    done = await _process_stage1(session, base, torrent_hash, meta, index)
+                    done = await _process_stage1(
+                        session, base, base_path, torrent_hash, meta, index,
+                    )
                     if done:
                         meta["phase"] = "completion"
                     else:
@@ -637,7 +655,7 @@ async def async_setup_entry(
                         continue
 
                     done = await _process_stage2(
-                        session, base, base_path, torrent_hash, meta, index,
+                        session, base, torrent_hash, meta, index,
                     )
                     if done:
                         queue.pop(torrent_hash, None)
