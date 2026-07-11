@@ -28,6 +28,13 @@ _COMMAND_DELAY = 0.25
 _LAGGARD_THRESHOLD = timedelta(minutes=10)
 _LAGGARD_INTERVAL = timedelta(minutes=30)
 
+# Folder rename + setLocation are deferred until the torrent reaches one of
+# these states — i.e. fully downloaded — so two different torrents that
+# happen to resolve to the same target folder name never have their
+# in-progress writes land in the same directory at once. Only a completed,
+# already-correct torrent's folder gets moved/renamed.
+_COMPLETE_STATES = {"uploading", "stalledup", "forcedup"}
+
 _BTIH_HEX_RE = re.compile(r"btih:([A-Fa-f0-9]{40})")
 _BTIH_B32_RE = re.compile(r"btih:([A-Za-z2-7]{32})")
 
@@ -159,6 +166,26 @@ async def _fetch_index(session, base: str, torrent_hash: str) -> dict | None:
     }
 
 
+async def _fetch_state(session, base: str, torrent_hash: str) -> str | None:
+    try:
+        async with session.get(
+            f"{base}/api/v2/torrents/info",
+            params={"hashes": torrent_hash},
+            timeout=10,
+        ) as resp:
+            if resp.status != 200:
+                return None
+            data = await resp.json(content_type=None)
+    except Exception:
+        _LOGGER.exception("[QBIT] fetch state request error hash=%s", torrent_hash)
+        return None
+
+    if not data:
+        return None
+
+    return str(data[0].get("state") or "").lower()
+
+
 async def _qbit_command(session, base, endpoint, data, *, timeout=10) -> bool:
     try:
         async with session.post(
@@ -239,11 +266,11 @@ async def _apply_file_priorities(session, base, torrent_hash, files, keep_ids) -
     return await _set_file_priority(session, base, torrent_hash, drop_ids, 0)
 
 
-async def _rename_single_file_target(
-    session, base, torrent_hash, files, largest, root_folder, folder_target, file_name,
+async def _rename_single_file(
+    session, base, torrent_hash, files, largest, root_folder, file_name,
 ) -> bool:
     """Movie and single-episode ("se") torrents both boil down to: rename the
-    one video file, rename its folder to `folder_target`, keep only that file."""
+    one video file and keep only it. Folder rename is deferred to stage 2."""
     ok = True
 
     if largest:
@@ -254,19 +281,18 @@ async def _rename_single_file_target(
         )
         ok &= await _rename_file(session, base, torrent_hash, largest["path"], new_path)
 
-    if root_folder:
-        ok &= await _rename_folder(session, base, torrent_hash, root_folder, folder_target)
-
     keep_ids = {largest["id"]} if largest else set()
     ok &= await _apply_file_priorities(session, base, torrent_hash, files, keep_ids)
 
     return ok
 
 
-async def _process_queue_item(session, base, base_path, torrent_hash, meta, index) -> bool:
+async def _process_stage1(session, base, torrent_hash, meta, index) -> bool:
+    """Metadata is available: rename files, apply fileprio, start the
+    download. No folder rename or setLocation yet — those wait for stage 2,
+    once the torrent has actually finished downloading."""
     token_type = meta["token_type"]
     category = meta["category"]
-    season = meta["season"]
     rename_name = meta["rename_name"]
 
     files = index["files"]
@@ -277,79 +303,86 @@ async def _process_queue_item(session, base, base_path, torrent_hash, meta, inde
     largest = max(videos, key=lambda f: f["size"]) if videos else None
 
     _LOGGER.debug(
-        "[QBIT] process hash=%s token_type=%r category=%r videos=%s largest=%r root_folder=%r",
+        "[QBIT] stage1 hash=%s token_type=%r category=%r videos=%s largest=%r root_folder=%r",
         torrent_hash, token_type, category, len(videos),
         largest["path"] if largest else None, root_folder,
     )
 
     ok = True
 
-    if not category:
-        # Movie (token_type "year", or unclassified — no season signal at all)
-        ok &= await _rename_single_file_target(
-            session, base, torrent_hash, files, largest, root_folder,
-            rename_name, rename_name,
+    if not category or token_type == "se":
+        # Movie (token_type "year", or unclassified) and single-episode both
+        # rename their one file and keep only it.
+        ok &= await _rename_single_file(
+            session, base, torrent_hash, files, largest, root_folder, rename_name,
         )
 
+    elif token_type in ("s", "season", "complete"):
+        keep_ids = {f["id"] for f in videos if _file_in_season_folder(f["path"])}
+
+        for f in videos:
+            if f["id"] not in keep_ids:
+                _LOGGER.debug(
+                    "[QBIT] episode rename skipped (folder not recognized as season) path=%s",
+                    f["path"],
+                )
+                continue
+            episode = _detect_episode(os.path.basename(f["path"]))
+            if not episode:
+                _LOGGER.debug(
+                    "[QBIT] episode rename skipped (no SxxExx in filename) path=%s",
+                    f["path"],
+                )
+                continue
+            ext = os.path.splitext(f["path"])[1]
+            new_path = _sibling_path(f["path"], f"{category} {episode}{ext}")
+            ok &= await _rename_file(session, base, torrent_hash, f["path"], new_path)
+
+        ok &= await _apply_file_priorities(session, base, torrent_hash, files, keep_ids)
+
+    else:
+        _LOGGER.warning(
+            "[QBIT] unrecognized token_type=%s hash=%s — skipping rename pipeline",
+            token_type, torrent_hash,
+        )
+        return True
+
+    ok &= await _start_torrent(session, base, torrent_hash)
+    return ok
+
+
+async def _process_stage2(session, base, base_path, torrent_hash, meta, index) -> bool:
+    """Torrent has finished downloading (uploading/stalledUP/forcedUP):
+    rename the folder(s) and set the final save location."""
+    token_type = meta["token_type"]
+    category = meta["category"]
+    season = meta["season"]
+    rename_name = meta["rename_name"]
+
+    folders = index["folders"]
+    root_folder = _root_folder(folders)
+
+    ok = True
+
+    if not category:
+        # Movie — no setLocation, stays at qBittorrent's default location.
+        if root_folder:
+            ok &= await _rename_folder(session, base, torrent_hash, root_folder, rename_name)
+
     elif token_type == "se":
-        ok &= await _rename_single_file_target(
-            session, base, torrent_hash, files, largest, root_folder,
-            season, rename_name,
-        )
-        location = (
-            _build_location(base_path, category)
-            if root_folder else _build_location(base_path, category, season)
-        )
+        if root_folder:
+            ok &= await _rename_folder(session, base, torrent_hash, root_folder, season)
+            location = _build_location(base_path, category)
+        else:
+            location = _build_location(base_path, category, season)
         ok &= await _set_location(session, base, torrent_hash, location)
 
     elif token_type in ("s", "season"):
-        keep_ids = {f["id"] for f in videos if _file_in_season_folder(f["path"])}
-
-        for f in videos:
-            if f["id"] not in keep_ids:
-                _LOGGER.debug(
-                    "[QBIT] episode rename skipped (folder not recognized as season) path=%s",
-                    f["path"],
-                )
-                continue
-            episode = _detect_episode(os.path.basename(f["path"]))
-            if not episode:
-                _LOGGER.debug(
-                    "[QBIT] episode rename skipped (no SxxExx in filename) path=%s",
-                    f["path"],
-                )
-                continue
-            ext = os.path.splitext(f["path"])[1]
-            new_path = _sibling_path(f["path"], f"{category} {episode}{ext}")
-            ok &= await _rename_file(session, base, torrent_hash, f["path"], new_path)
-
         if root_folder:
             ok &= await _rename_folder(session, base, torrent_hash, root_folder, season)
-
-        ok &= await _apply_file_priorities(session, base, torrent_hash, files, keep_ids)
         ok &= await _set_location(session, base, torrent_hash, _build_location(base_path, category))
 
     elif token_type == "complete":
-        keep_ids = {f["id"] for f in videos if _file_in_season_folder(f["path"])}
-
-        for f in videos:
-            if f["id"] not in keep_ids:
-                _LOGGER.debug(
-                    "[QBIT] episode rename skipped (folder not recognized as season) path=%s",
-                    f["path"],
-                )
-                continue
-            episode = _detect_episode(os.path.basename(f["path"]))
-            if not episode:
-                _LOGGER.debug(
-                    "[QBIT] episode rename skipped (no SxxExx in filename) path=%s",
-                    f["path"],
-                )
-                continue
-            ext = os.path.splitext(f["path"])[1]
-            new_path = _sibling_path(f["path"], f"{category} {episode}{ext}")
-            ok &= await _rename_file(session, base, torrent_hash, f["path"], new_path)
-
         # Rename nested season folders first — root rename happens last so
         # their currently-indexed paths (still prefixed by the old root name)
         # stay valid when renameFolder is called.
@@ -367,8 +400,6 @@ async def _process_queue_item(session, base, base_path, torrent_hash, meta, inde
         if root_folder:
             ok &= await _rename_folder(session, base, torrent_hash, root_folder, category)
 
-        ok &= await _apply_file_priorities(session, base, torrent_hash, files, keep_ids)
-
         # Root folder was just renamed to `category` itself — setLocation only
         # needs base_path, or the move produces base_path/category/category/...
         location = (
@@ -379,12 +410,10 @@ async def _process_queue_item(session, base, base_path, torrent_hash, meta, inde
 
     else:
         _LOGGER.warning(
-            "[QBIT] unrecognized token_type=%s hash=%s — skipping rename pipeline",
+            "[QBIT] unrecognized token_type=%s hash=%s — skipping stage2",
             token_type, torrent_hash,
         )
-        return True
 
-    ok &= await _start_torrent(session, base, torrent_hash)
     return ok
 
 
@@ -578,29 +607,51 @@ async def async_setup_entry(
                 continue
 
             meta["last_checked_at"] = now
-
-            index = await _fetch_index(session, base, torrent_hash)
-            if index is None:
-                continue
+            phase = meta.get("phase", "metadata")
 
             try:
-                done = await _process_queue_item(
-                    session, base, base_path, torrent_hash, meta, index,
-                )
+                if phase == "metadata":
+                    index = await _fetch_index(session, base, torrent_hash)
+                    if index is None:
+                        continue
+
+                    done = await _process_stage1(session, base, torrent_hash, meta, index)
+                    if done:
+                        meta["phase"] = "completion"
+                    else:
+                        _LOGGER.warning(
+                            "[QBIT] queue retry hash=%s — stage1 step failed, retrying next tick",
+                            torrent_hash,
+                        )
+                    # Never popped here — reaching stage 1's end just
+                    # advances the phase, the item stays queued until the
+                    # torrent actually finishes downloading.
+
+                else:  # phase == "completion"
+                    state = await _fetch_state(session, base, torrent_hash)
+                    if state is None or state not in _COMPLETE_STATES:
+                        continue
+
+                    index = await _fetch_index(session, base, torrent_hash)
+                    if index is None:
+                        continue
+
+                    done = await _process_stage2(
+                        session, base, base_path, torrent_hash, meta, index,
+                    )
+                    if done:
+                        queue.pop(torrent_hash, None)
+                    else:
+                        _LOGGER.warning(
+                            "[QBIT] queue retry hash=%s — stage2 step failed, retrying next tick",
+                            torrent_hash,
+                        )
             except Exception:
                 _LOGGER.exception(
                     "[QBIT] queue processing failed hash=%s",
                     torrent_hash,
                 )
                 continue
-
-            if done:
-                queue.pop(torrent_hash, None)
-            else:
-                _LOGGER.warning(
-                    "[QBIT] queue retry hash=%s — one or more steps failed, retrying next tick",
-                    torrent_hash,
-                )
 
     unsub = async_track_time_interval(hass, _poll_queue, _POLL_INTERVAL)
     hass.data[DOMAIN][entry.entry_id]["unsub_poll"] = unsub
