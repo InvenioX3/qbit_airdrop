@@ -7,7 +7,8 @@
         "data": {
           "host": "Host",
           "port": "Port",
-          "base_path": "Default save path (optional)",
+          "base_path": "Category save path:",
+          "download_path": "Download path:",
           "confirm_delete": "Confirm before deleting a torrent and its files"
         }
       }
@@ -24,7 +25,8 @@
         "data": {
           "host": "Host",
           "port": "Port",
-          "base_path": "Default save path (optional)",
+          "base_path": "Category save path:",
+          "download_path": "Download path:",
           "confirm_delete": "Confirm before deleting a torrent and its files"
         }
       }
