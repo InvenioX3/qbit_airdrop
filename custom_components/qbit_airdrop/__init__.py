@@ -109,6 +109,17 @@ def _root_folder(folders: list[str]) -> str:
     return next((f for f in folders if "/" not in f), "")
 
 
+_BLURAY_MARKERS = {"bdmv", "!any", "certificate"}
+
+
+def _is_bluray_structure(folders: list[str]) -> bool:
+    for folder in folders:
+        for segment in folder.split("/"):
+            if segment.strip().lower() in _BLURAY_MARKERS:
+                return True
+    return False
+
+
 def _is_due(meta: dict, now) -> bool:
     added_at = meta.get("added_at")
     if added_at is None:
@@ -260,6 +271,7 @@ async def _apply_file_priorities(session, base, torrent_hash, files, keep_ids) -
 
 async def _rename_single_file_target(
     session, base, torrent_hash, files, largest, root_folder, folder_target, file_name,
+    force_keep_all=False,
 ) -> bool:
     """Movie and single-episode ("se") torrents both boil down to: rename the
     one video file, rename its folder to `folder_target`, keep only that file."""
@@ -276,7 +288,10 @@ async def _rename_single_file_target(
     if root_folder:
         ok &= await _rename_folder(session, base, torrent_hash, root_folder, folder_target)
 
-    keep_ids = {largest["id"]} if largest else set()
+    keep_ids = (
+        {f["id"] for f in files} if force_keep_all
+        else ({largest["id"]} if largest else set())
+    )
     ok &= await _apply_file_priorities(session, base, torrent_hash, files, keep_ids)
 
     return ok
@@ -294,11 +309,12 @@ async def _process_queue_item(session, base, base_path, torrent_hash, meta, inde
 
     videos = [f for f in files if _is_video(f["path"])]
     largest = max(videos, key=lambda f: f["size"]) if videos else None
+    is_bluray = _is_bluray_structure(folders)
 
     _LOGGER.debug(
-        "[QBIT] process hash=%s token_type=%r category=%r videos=%s largest=%r root_folder=%r",
+        "[QBIT] process hash=%s token_type=%r category=%r videos=%s largest=%r root_folder=%r is_bluray=%s",
         torrent_hash, token_type, category, len(videos),
-        largest["path"] if largest else None, root_folder,
+        largest["path"] if largest else None, root_folder, is_bluray,
     )
 
     ok = True
@@ -307,13 +323,13 @@ async def _process_queue_item(session, base, base_path, torrent_hash, meta, inde
         # Movie (token_type "year", or unclassified — no season signal at all)
         ok &= await _rename_single_file_target(
             session, base, torrent_hash, files, largest, root_folder,
-            rename_name, rename_name,
+            rename_name, rename_name, force_keep_all=is_bluray,
         )
 
     elif token_type == "se":
         ok &= await _rename_single_file_target(
             session, base, torrent_hash, files, largest, root_folder,
-            season, rename_name,
+            season, rename_name, force_keep_all=is_bluray,
         )
         location = (
             _build_location(base_path, category)
@@ -322,7 +338,10 @@ async def _process_queue_item(session, base, base_path, torrent_hash, meta, inde
         ok &= await _set_location(session, base, torrent_hash, location)
 
     elif token_type in ("s", "season"):
-        keep_ids = {f["id"] for f in videos if _file_in_season_folder(f["path"])}
+        keep_ids = (
+            {f["id"] for f in files} if is_bluray
+            else {f["id"] for f in videos if _file_in_season_folder(f["path"])}
+        )
 
         for f in videos:
             if f["id"] not in keep_ids:
@@ -349,7 +368,10 @@ async def _process_queue_item(session, base, base_path, torrent_hash, meta, inde
         ok &= await _set_location(session, base, torrent_hash, _build_location(base_path, category))
 
     elif token_type == "complete":
-        keep_ids = {f["id"] for f in videos if _file_in_season_folder(f["path"])}
+        keep_ids = (
+            {f["id"] for f in files} if is_bluray
+            else {f["id"] for f in videos if _file_in_season_folder(f["path"])}
+        )
 
         for f in videos:
             if f["id"] not in keep_ids:

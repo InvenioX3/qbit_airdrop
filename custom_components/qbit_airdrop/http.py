@@ -30,6 +30,9 @@ class QbitAirdropActiveView(HomeAssistantView):
         if not base:
             return web.json_response({"ok": False, "error": "qB base not configured"}, status=400)
 
+        store = self.hass.data.get(DOMAIN, {}).get(self.entry.entry_id) or {}
+        queue_hashes = set((store.get("queue") or {}).keys())
+
         session = async_get_clientsession(self.hass)
         try:
             async with session.get(f"{base}/api/v2/torrents/info?filter=all", timeout=10) as resp:
@@ -57,12 +60,14 @@ class QbitAirdropActiveView(HomeAssistantView):
                 if pct is not None:
                     pct = max(0, min(100, pct))
 
+                thash = str(obj.get("hash") or "").lower()
                 items.append({
                     "title": name,
                     "percent": pct,
-                    "hash": str(obj.get("hash") or "").lower(),
+                    "hash": thash,
                     "state": str(obj.get("state") or "").lower(),
                     "size": obj.get("size", None),
+                    "in_queue": thash in queue_hashes,
                     # pass-through for the card
                     "dlspeed": obj.get("dlspeed", 0),           # bytes/sec
                     "upspeed": obj.get("upspeed", 0),           # bytes/sec
