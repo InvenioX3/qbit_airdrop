@@ -340,23 +340,21 @@ async def _process_queue_item(session, base, base_path, torrent_hash, meta, inde
     elif token_type in ("s", "season"):
         keep_ids = (
             {f["id"] for f in files} if is_bluray
-            else {f["id"] for f in videos if _file_in_season_folder(f["path"])}
+            else {
+                f["id"] for f in videos
+                if _file_in_season_folder(f["path"])
+                and _detect_episode(os.path.basename(f["path"]))
+            }
         )
 
         for f in videos:
             if f["id"] not in keep_ids:
                 _LOGGER.debug(
-                    "[QBIT] episode rename skipped (folder not recognized as season) path=%s",
+                    "[QBIT] episode rename skipped (not a recognized episode) path=%s",
                     f["path"],
                 )
                 continue
             episode = _detect_episode(os.path.basename(f["path"]))
-            if not episode:
-                _LOGGER.debug(
-                    "[QBIT] episode rename skipped (no SxxExx in filename) path=%s",
-                    f["path"],
-                )
-                continue
             ext = os.path.splitext(f["path"])[1]
             new_path = _sibling_path(f["path"], f"{category} {episode}{ext}")
             ok &= await _rename_file(session, base, torrent_hash, f["path"], new_path)
@@ -370,23 +368,21 @@ async def _process_queue_item(session, base, base_path, torrent_hash, meta, inde
     elif token_type == "complete":
         keep_ids = (
             {f["id"] for f in files} if is_bluray
-            else {f["id"] for f in videos if _file_in_season_folder(f["path"])}
+            else {
+                f["id"] for f in videos
+                if _file_in_season_folder(f["path"])
+                and _detect_episode(os.path.basename(f["path"]))
+            }
         )
 
         for f in videos:
             if f["id"] not in keep_ids:
                 _LOGGER.debug(
-                    "[QBIT] episode rename skipped (folder not recognized as season) path=%s",
+                    "[QBIT] episode rename skipped (not a recognized episode) path=%s",
                     f["path"],
                 )
                 continue
             episode = _detect_episode(os.path.basename(f["path"]))
-            if not episode:
-                _LOGGER.debug(
-                    "[QBIT] episode rename skipped (no SxxExx in filename) path=%s",
-                    f["path"],
-                )
-                continue
             ext = os.path.splitext(f["path"])[1]
             new_path = _sibling_path(f["path"], f"{category} {episode}{ext}")
             ok &= await _rename_file(session, base, torrent_hash, f["path"], new_path)
