@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import List
 
 from aiohttp import ClientError, web
@@ -14,6 +15,8 @@ from .const import DOMAIN
 from .util import resolve_base as _resolve_base
 
 _LOGGER = logging.getLogger(__name__)
+
+_EXTERNAL_IP_RE = re.compile(r"Detected external IP:\s*(\S+)")
 
 
 class QbitAirdropActiveView(HomeAssistantView):
@@ -132,6 +135,78 @@ class QbitAirdropDeleteView(HomeAssistantView):
                 )
 
         return web.json_response({"ok": True})
+
+
+class QbitAirdropStatsView(HomeAssistantView):
+    url = "/api/qbit_airdrop/stats"
+    name = "qbit_airdrop:stats"
+    requires_auth = True
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self.entry = entry
+
+    async def get(self, request) -> web.Response:
+        (base,) = _resolve_base(self.entry)
+        if not base:
+            return web.json_response({"ok": False, "error": "qB base not configured"}, status=400)
+
+        session = async_get_clientsession(self.hass)
+        try:
+            async with session.get(f"{base}/api/v2/transfer/info", timeout=10) as resp:
+                if resp.status != 200:
+                    return web.json_response({"ok": False, "error": "Fetch failed"}, status=resp.status)
+                transfer = await resp.json(content_type=None)
+
+            async with session.get(
+                f"{base}/api/v2/sync/maindata",
+                params={"rid": 0},
+                timeout=10,
+            ) as resp:
+                if resp.status != 200:
+                    return web.json_response({"ok": False, "error": "Fetch failed"}, status=resp.status)
+                maindata = await resp.json(content_type=None)
+        except ClientError as err:
+            _LOGGER.error("qB request error: %s", err)
+            return web.json_response({"ok": False, "error": "Request error"}, status=502)
+
+        dl_speed = transfer.get("dl_info_speed") if isinstance(transfer, dict) else None
+        server_state = maindata.get("server_state") if isinstance(maindata, dict) else None
+        free_space = server_state.get("free_space_on_disk") if isinstance(server_state, dict) else None
+
+        _LOGGER.warning(
+            "[QBIT] stats debug transfer=%r maindata_keys=%r server_state=%r",
+            transfer,
+            list(maindata.keys()) if isinstance(maindata, dict) else type(maindata).__name__,
+            server_state,
+        )
+
+        store = self.hass.data.get(DOMAIN, {}).get(self.entry.entry_id)
+        external_ip = store.get("external_ip") if store else None
+
+        if not external_ip:
+            try:
+                async with session.get(f"{base}/api/v2/log/main", timeout=10) as resp:
+                    if resp.status == 200:
+                        log_entries = await resp.json(content_type=None)
+                        if isinstance(log_entries, list):
+                            for log_entry in reversed(log_entries):
+                                match = _EXTERNAL_IP_RE.search(str(log_entry.get("message") or ""))
+                                if match:
+                                    external_ip = match.group(1)
+                                    break
+            except ClientError:
+                pass
+
+            if external_ip and store is not None:
+                store["external_ip"] = external_ip
+
+        return web.json_response({
+            "ok": True,
+            "dl_speed": dl_speed,
+            "free_space": free_space,
+            "external_ip": external_ip,
+        })
 
 
 class QbitAirdropForceStartView(HomeAssistantView):
