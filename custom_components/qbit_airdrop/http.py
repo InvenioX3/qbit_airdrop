@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from typing import List
 
 from aiohttp import ClientError, web
@@ -15,8 +14,6 @@ from .const import DOMAIN
 from .util import resolve_base as _resolve_base
 
 _LOGGER = logging.getLogger(__name__)
-
-_EXTERNAL_IP_RE = re.compile(r"Detected external IP:\s*(\S+)")
 
 
 class QbitAirdropActiveView(HomeAssistantView):
@@ -173,33 +170,7 @@ class QbitAirdropStatsView(HomeAssistantView):
         dl_speed = transfer.get("dl_info_speed") if isinstance(transfer, dict) else None
         server_state = maindata.get("server_state") if isinstance(maindata, dict) else None
         free_space = server_state.get("free_space_on_disk") if isinstance(server_state, dict) else None
-
-        _LOGGER.warning(
-            "[QBIT] stats debug transfer=%r maindata_keys=%r server_state=%r",
-            transfer,
-            list(maindata.keys()) if isinstance(maindata, dict) else type(maindata).__name__,
-            server_state,
-        )
-
-        store = self.hass.data.get(DOMAIN, {}).get(self.entry.entry_id)
-        external_ip = store.get("external_ip") if store else None
-
-        if not external_ip:
-            try:
-                async with session.get(f"{base}/api/v2/log/main", timeout=10) as resp:
-                    if resp.status == 200:
-                        log_entries = await resp.json(content_type=None)
-                        if isinstance(log_entries, list):
-                            for log_entry in reversed(log_entries):
-                                match = _EXTERNAL_IP_RE.search(str(log_entry.get("message") or ""))
-                                if match:
-                                    external_ip = match.group(1)
-                                    break
-            except ClientError:
-                pass
-
-            if external_ip and store is not None:
-                store["external_ip"] = external_ip
+        external_ip = server_state.get("last_external_address_v4") if isinstance(server_state, dict) else None
 
         return web.json_response({
             "ok": True,
