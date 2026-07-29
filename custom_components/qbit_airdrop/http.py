@@ -54,7 +54,11 @@ class QbitAirdropActiveView(HomeAssistantView):
                 name = str(obj.get("name") or "").strip()
                 prog = obj.get("progress", None)
                 try:
-                    pct = int(round(float(prog) * 100)) if prog is not None else None
+                    # Truncate rather than round — qBittorrent sets progress to
+                    # exactly 1.0 on completion, so this only shows 100% when
+                    # actually done instead of prematurely rounding up (e.g.
+                    # 99.9% would otherwise display as a misleading 100%).
+                    pct = int(float(prog) * 100) if prog is not None else None
                 except Exception:
                     pct = None
                 if pct is not None:
