@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import List
 
 from aiohttp import ClientError, web
@@ -47,6 +48,30 @@ class QbitAirdropActiveView(HomeAssistantView):
         except ClientError as err:
             _LOGGER.error("qB request error: %s", err)
             return web.json_response({"ok": False, "error": "Request error"}, status=502)
+
+        # Auto force-start torrents stalled (stalledDL specifically — not
+        # stoppedDL, which is a deliberate pause on metadata and must not be
+        # touched) for 5+ minutes. Stateless: piggybacks on this endpoint's
+        # existing poll cadence and qBittorrent's own last_activity field
+        # rather than tracking anything ourselves.
+        if isinstance(payload, list):
+            now = int(time.time())
+            stalled_hashes = [
+                str(obj.get("hash") or "").lower()
+                for obj in payload
+                if str(obj.get("state") or "").lower() == "stalleddl"
+                and (now - int(obj.get("last_activity") or now)) >= 300
+            ]
+            if stalled_hashes:
+                try:
+                    async with session.post(
+                        f"{base}/api/v2/torrents/setForceStart",
+                        data={"hashes": "|".join(stalled_hashes), "value": "true"},
+                        timeout=10,
+                    ):
+                        pass
+                except ClientError:
+                    _LOGGER.exception("[QBIT] auto force-start request error")
 
         items: List[dict] = []
         if isinstance(payload, list):
