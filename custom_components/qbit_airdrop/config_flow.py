@@ -10,7 +10,6 @@ from .const import (
     CONF_HOST,
     CONF_PORT,
     CONF_BASE_PATH,
-    CONF_DOWNLOAD_PATH,
     CONF_MOVIE_PATH,
     CONF_CONFIRM_DELETE,
 )
@@ -22,7 +21,6 @@ def _build_schema(defaults: dict) -> vol.Schema:
         vol.Required(CONF_HOST, default=defaults.get(CONF_HOST, "")): str,
         vol.Optional(CONF_PORT, default=defaults.get(CONF_PORT, 8080)): int,
         vol.Optional(CONF_BASE_PATH, default=defaults.get(CONF_BASE_PATH, "")): str,
-        vol.Optional(CONF_DOWNLOAD_PATH, default=defaults.get(CONF_DOWNLOAD_PATH, "")): str,
         vol.Optional(CONF_MOVIE_PATH, default=defaults.get(CONF_MOVIE_PATH, "")): str,
         vol.Optional(CONF_CONFIRM_DELETE, default=defaults.get(CONF_CONFIRM_DELETE, False)): bool,
     })
@@ -37,7 +35,6 @@ def _normalize_input(user_input: dict) -> dict | None:
     normalized = dict(user_input)
     normalized[CONF_HOST] = host.strip("/")
     normalized[CONF_BASE_PATH] = (user_input.get(CONF_BASE_PATH) or "").strip()
-    normalized[CONF_DOWNLOAD_PATH] = (user_input.get(CONF_DOWNLOAD_PATH) or "").strip()
     normalized[CONF_MOVIE_PATH] = (user_input.get(CONF_MOVIE_PATH) or "").strip()
     return normalized
 

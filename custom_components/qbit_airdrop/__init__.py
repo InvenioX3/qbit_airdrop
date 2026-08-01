@@ -7,7 +7,6 @@ import logging
 import os
 import re
 from datetime import timedelta
-from urllib.parse import unquote_plus
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -18,7 +17,6 @@ from homeassistant.util import dt as dt_util
 from .const import (
     DOMAIN,
     CONF_BASE_PATH,
-    CONF_DOWNLOAD_PATH,
     CONF_MOVIE_PATH,
 )
 from .util import resolve_base as _resolve_base
@@ -33,8 +31,6 @@ _LAGGARD_INTERVAL = timedelta(minutes=30)
 
 _BTIH_HEX_RE = re.compile(r"btih:([A-Fa-f0-9]{40})")
 _BTIH_B32_RE = re.compile(r"btih:([A-Za-z2-7]{32})")
-_MAGNET_DN_RE = re.compile(r"[?&]dn=([^&]+)")
-_INVALID_PATH_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 _SEASON_TOKEN_RE = re.compile(r"\bS(\d{1,2})\b(?!-\d)", re.I)
 _SEASON_WORD_RE = re.compile(r"\bSeason\s*(\d{1,2})\b", re.I)
@@ -51,24 +47,9 @@ def _resolve_base_path(entry: ConfigEntry) -> str:
     return (data.get(CONF_BASE_PATH) or "").strip()
 
 
-def _resolve_download_path(entry: ConfigEntry) -> str:
-    data = entry.options or entry.data or {}
-    return (data.get(CONF_DOWNLOAD_PATH) or "").strip()
-
-
 def _resolve_movie_path(entry: ConfigEntry) -> str:
     data = entry.options or entry.data or {}
     return (data.get(CONF_MOVIE_PATH) or "").strip()
-
-
-def _magnet_display_name(magnet: str) -> str:
-    match = _MAGNET_DN_RE.search(magnet)
-    if not match:
-        return ""
-
-    name = unquote_plus(match.group(1)).strip()
-    name = _INVALID_PATH_CHARS_RE.sub(" ", name).strip(" .")
-    return name
 
 
 def _extract_hash(magnet: str) -> str:
@@ -517,13 +498,6 @@ async def async_setup_entry(
 
         if category:
             form["category"] = category
-
-        download_path_base = _resolve_download_path(entry)
-        if download_path_base:
-            unique_name = _magnet_display_name(magnet) or _extract_hash(magnet)
-            if unique_name:
-                form["downloadPath"] = _build_location(download_path_base, unique_name)
-                form["useDownloadPath"] = "true"
 
         async with session.post(
             f"{base}/api/v2/torrents/add",
