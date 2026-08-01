@@ -9,6 +9,7 @@
           "port": "Port",
           "base_path": "Category save path:",
           "download_path": "Download path:",
+          "movie_path": "Movie save path:",
           "confirm_delete": "Confirm before deleting a torrent and its files"
         }
       }
@@ -27,6 +28,7 @@
           "port": "Port",
           "base_path": "Category save path:",
           "download_path": "Download path:",
+          "movie_path": "Movie save path:",
           "confirm_delete": "Confirm before deleting a torrent and its files"
         }
       }

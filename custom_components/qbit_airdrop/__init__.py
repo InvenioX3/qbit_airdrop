@@ -19,6 +19,7 @@ from .const import (
     DOMAIN,
     CONF_BASE_PATH,
     CONF_DOWNLOAD_PATH,
+    CONF_MOVIE_PATH,
 )
 from .util import resolve_base as _resolve_base
 
@@ -53,6 +54,11 @@ def _resolve_base_path(entry: ConfigEntry) -> str:
 def _resolve_download_path(entry: ConfigEntry) -> str:
     data = entry.options or entry.data or {}
     return (data.get(CONF_DOWNLOAD_PATH) or "").strip()
+
+
+def _resolve_movie_path(entry: ConfigEntry) -> str:
+    data = entry.options or entry.data or {}
+    return (data.get(CONF_MOVIE_PATH) or "").strip()
 
 
 def _magnet_display_name(magnet: str) -> str:
@@ -297,7 +303,7 @@ async def _rename_single_file_target(
     return ok
 
 
-async def _process_queue_item(session, base, base_path, torrent_hash, meta, index) -> bool:
+async def _process_queue_item(session, base, base_path, movie_path, torrent_hash, meta, index) -> bool:
     token_type = meta["token_type"]
     category = meta["category"]
     season = meta["season"]
@@ -320,11 +326,17 @@ async def _process_queue_item(session, base, base_path, torrent_hash, meta, inde
     ok = True
 
     if not category:
-        # Movie (token_type "year", or unclassified — no season signal at all)
+        # Movie (token_type "year", or unclassified — no season signal at all).
+        # Movies have no category, so unlike every other branch they were
+        # never explicitly relocated — they just landed wherever qBittorrent's
+        # own Default Save Path pointed. Explicitly relocate when a movie
+        # path is configured.
         ok &= await _rename_single_file_target(
             session, base, torrent_hash, files, largest, root_folder,
             rename_name, rename_name, force_keep_all=is_bluray,
         )
+        if movie_path:
+            ok &= await _set_location(session, base, torrent_hash, _build_location(movie_path))
 
     elif token_type == "se":
         ok &= await _rename_single_file_target(
@@ -628,6 +640,7 @@ async def async_setup_entry(
             return
 
         base_path = _resolve_base_path(entry)
+        movie_path = _resolve_movie_path(entry)
 
         for torrent_hash, meta in list(queue.items()):
             if not _is_due(meta, now):
@@ -641,7 +654,7 @@ async def async_setup_entry(
 
             try:
                 done = await _process_queue_item(
-                    session, base, base_path, torrent_hash, meta, index,
+                    session, base, base_path, movie_path, torrent_hash, meta, index,
                 )
             except Exception:
                 _LOGGER.exception(
