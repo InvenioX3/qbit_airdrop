@@ -499,6 +499,14 @@ async def async_setup_entry(
         if category:
             form["category"] = category
 
+        # Explicitly enabling useDownloadPath (even with no custom path,
+        # falling back to qBittorrent's own configured temp path) is
+        # required for its "always create a subfolder" content-layout
+        # behavior to apply — confirmed via v3.45 (working) vs v3.47
+        # (broken) comparison, where this flag's removal was the only
+        # change affecting every torrent regardless of category.
+        form["useDownloadPath"] = "true"
+
         async with session.post(
             f"{base}/api/v2/torrents/add",
             data=form,
