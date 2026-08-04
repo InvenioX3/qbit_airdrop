@@ -6,13 +6,14 @@ import json
 import logging
 import os
 import re
+import shutil
 from datetime import timedelta
 from urllib.parse import unquote_plus
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import aiohttp_client
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import async_track_time_interval, async_track_time_change
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -20,6 +21,8 @@ from .const import (
     CONF_BASE_PATH,
     CONF_DOWNLOAD_PATH,
     CONF_MOVIE_PATH,
+    CONF_TEMP_HA_PATH,
+    CONF_CLEANUP_TIME,
 )
 from .util import resolve_base as _resolve_base
 
@@ -27,6 +30,10 @@ _LOGGER = logging.getLogger(__name__)
 
 _POLL_INTERVAL = timedelta(seconds=15)
 _COMMAND_DELAY = 0.25
+
+# Torrent states qBittorrent considers "settled" — fully downloaded and past
+# the completion-triggered move, whether currently seeding or not.
+_COMPLETE_STATES = {"uploading", "stalledup", "forcedup"}
 
 _LAGGARD_THRESHOLD = timedelta(minutes=10)
 _LAGGARD_INTERVAL = timedelta(minutes=30)
@@ -59,6 +66,70 @@ def _resolve_download_path(entry: ConfigEntry) -> str:
 def _resolve_movie_path(entry: ConfigEntry) -> str:
     data = entry.options or entry.data or {}
     return (data.get(CONF_MOVIE_PATH) or "").strip()
+
+
+def _resolve_temp_ha_path(entry: ConfigEntry) -> str:
+    data = entry.options or entry.data or {}
+    return (data.get(CONF_TEMP_HA_PATH) or "").strip()
+
+
+def _resolve_cleanup_time(entry: ConfigEntry) -> tuple[int, int] | None:
+    data = entry.options or entry.data or {}
+    raw = (data.get(CONF_CLEANUP_TIME) or "").strip()
+    if not raw:
+        return None
+
+    try:
+        hour_str, minute_str = raw.split(":", 1)
+        hour, minute = int(hour_str), int(minute_str)
+    except (ValueError, AttributeError):
+        _LOGGER.warning("[QBIT] invalid cleanup_time %r — cleanup schedule disabled", raw)
+        return None
+
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        _LOGGER.warning("[QBIT] cleanup_time %r out of range — cleanup schedule disabled", raw)
+        return None
+
+    return hour, minute
+
+
+def _folder_is_cleanup_safe(folder_path: str) -> bool:
+    """True if folder_path contains nothing but .part files anywhere in its
+    tree (or is empty) — safe to remove once its torrent shows complete."""
+    for _root, _dirs, files in os.walk(folder_path):
+        for fname in files:
+            if not fname.lower().endswith(".part"):
+                return False
+    return True
+
+
+def _cleanup_temp_folders_sync(temp_root: str, complete_names: set[str]) -> list[str]:
+    """Blocking filesystem work — must be run via hass.async_add_executor_job.
+    Returns the list of folder paths actually removed."""
+    removed: list[str] = []
+    try:
+        entries = os.listdir(temp_root)
+    except OSError:
+        _LOGGER.exception("[QBIT] temp cleanup: could not list %s", temp_root)
+        return removed
+
+    for name in entries:
+        if name not in complete_names:
+            continue
+
+        folder_path = os.path.join(temp_root, name)
+        if not os.path.isdir(folder_path):
+            continue
+        if not _folder_is_cleanup_safe(folder_path):
+            continue
+
+        try:
+            shutil.rmtree(folder_path)
+            removed.append(folder_path)
+        except OSError:
+            _LOGGER.exception("[QBIT] temp cleanup: could not remove %s", folder_path)
+
+    return removed
 
 
 def _magnet_display_name(magnet: str) -> str:
@@ -193,6 +264,121 @@ async def _fetch_index(session, base: str, torrent_hash: str) -> dict | None:
         "files": files,
         "folders": sorted(folders),
     }
+
+
+async def _cleanup_temp_folders(hass, session, base, temp_ha_path) -> None:
+    if not temp_ha_path:
+        return
+
+    try:
+        async with session.get(
+            f"{base}/api/v2/torrents/info",
+            params={"filter": "all"},
+            timeout=10,
+        ) as resp:
+            if resp.status != 200:
+                return
+            live = await resp.json(content_type=None)
+    except Exception:
+        _LOGGER.exception("[QBIT] temp cleanup: torrent list fetch failed")
+        return
+
+    if not isinstance(live, list):
+        return
+
+    # The temp folder name and qBittorrent's own tracked torrent name are the
+    # same string permanently — our renames only touch content inside that
+    # folder, never the folder itself or qBittorrent's own tracked name.
+    complete_names = {
+        str(t.get("name") or "")
+        for t in live
+        if str(t.get("state") or "").lower() in _COMPLETE_STATES
+    }
+    if not complete_names:
+        return
+
+    removed = await hass.async_add_executor_job(
+        _cleanup_temp_folders_sync, temp_ha_path, complete_names,
+    )
+    for path in removed:
+        _LOGGER.debug("[QBIT] temp cleanup removed %s", path)
+
+
+def _find_available_name(base_name: str, existing_names: set[str]) -> str:
+    if base_name not in existing_names:
+        return base_name
+    n = 1
+    while f"{base_name} ({n})" in existing_names:
+        n += 1
+    return f"{base_name} ({n})"
+
+
+async def _collect_other_season_folders(session, base, torrent_hash, category) -> set[str]:
+    """Root-level folder names of other currently-tracked torrents in the
+    same category — the collision unit for TV is the season folder itself,
+    since episodes move as a bundle within it."""
+    try:
+        async with session.get(
+            f"{base}/api/v2/torrents/info",
+            params={"filter": "all", "category": category},
+            timeout=10,
+        ) as resp:
+            if resp.status != 200:
+                return set()
+            others = await resp.json(content_type=None)
+    except Exception:
+        _LOGGER.exception("[QBIT] dedup: same-category fetch failed")
+        return set()
+
+    if not isinstance(others, list):
+        return set()
+
+    names = set()
+    for t in others:
+        other_hash = str(t.get("hash") or "").lower()
+        if other_hash == torrent_hash:
+            continue
+        other_index = await _fetch_index(session, base, other_hash)
+        if not other_index:
+            continue
+        other_root = _root_folder(other_index["folders"])
+        if other_root:
+            names.add(other_root)
+    return names
+
+
+async def _collect_other_movie_filenames(session, base, torrent_hash) -> set[str]:
+    """Video-file basenames (no extension) of other currently-tracked
+    category-less torrents — movies land as individual files, so the
+    collision unit is the file name itself, not a folder."""
+    try:
+        async with session.get(
+            f"{base}/api/v2/torrents/info",
+            params={"filter": "all", "category": ""},
+            timeout=10,
+        ) as resp:
+            if resp.status != 200:
+                return set()
+            others = await resp.json(content_type=None)
+    except Exception:
+        _LOGGER.exception("[QBIT] dedup: movie fetch failed")
+        return set()
+
+    if not isinstance(others, list):
+        return set()
+
+    names = set()
+    for t in others:
+        other_hash = str(t.get("hash") or "").lower()
+        if other_hash == torrent_hash:
+            continue
+        other_index = await _fetch_index(session, base, other_hash)
+        if not other_index:
+            continue
+        for f in other_index["files"]:
+            if _is_video(f["path"]):
+                names.add(os.path.splitext(os.path.basename(f["path"]))[0])
+    return names
 
 
 async def _qbit_command(session, base, endpoint, data, *, timeout=10) -> bool:
@@ -331,25 +517,41 @@ async def _process_queue_item(session, base, base_path, movie_path, torrent_hash
         # never explicitly relocated — they just landed wherever qBittorrent's
         # own Default Save Path pointed. Explicitly relocate when a movie
         # path is configured.
+        #
+        # Movies land as individual files (no bundling benefit like a season
+        # folder), so the dedup unit is the file name itself — check other
+        # currently-tracked category-less torrents for a collision.
+        other_names = await _collect_other_movie_filenames(session, base, torrent_hash)
+        target_name = _find_available_name(rename_name, other_names)
         ok &= await _rename_single_file_target(
             session, base, torrent_hash, files, largest, root_folder,
-            rename_name, rename_name, force_keep_all=is_bluray,
+            target_name, target_name, force_keep_all=is_bluray,
         )
         if movie_path:
             ok &= await _set_location(session, base, torrent_hash, _build_location(movie_path))
 
     elif token_type == "se":
+        # TV episodes move as a bundle within their season folder, so the
+        # dedup unit is that folder name — check other currently-tracked
+        # same-category torrents for a collision.
+        other_names = await _collect_other_season_folders(session, base, torrent_hash, category)
+        season_target = _find_available_name(season, other_names)
         ok &= await _rename_single_file_target(
             session, base, torrent_hash, files, largest, root_folder,
-            season, rename_name, force_keep_all=is_bluray,
+            season_target, rename_name, force_keep_all=is_bluray,
         )
         location = (
             _build_location(base_path, category)
-            if root_folder else _build_location(base_path, category, season)
+            if root_folder else _build_location(base_path, category, season_target)
         )
         ok &= await _set_location(session, base, torrent_hash, location)
 
     elif token_type in ("s", "season"):
+        # Same dedup unit as "se" — the season folder, since a whole pack's
+        # episodes move together within it.
+        other_names = await _collect_other_season_folders(session, base, torrent_hash, category)
+        season_target = _find_available_name(season, other_names)
+
         keep_ids = (
             {f["id"] for f in files} if is_bluray
             else {
@@ -372,7 +574,7 @@ async def _process_queue_item(session, base, base_path, movie_path, torrent_hash
             ok &= await _rename_file(session, base, torrent_hash, f["path"], new_path)
 
         if root_folder:
-            ok &= await _rename_folder(session, base, torrent_hash, root_folder, season)
+            ok &= await _rename_folder(session, base, torrent_hash, root_folder, season_target)
 
         ok &= await _apply_file_priorities(session, base, torrent_hash, files, keep_ids)
         ok &= await _set_location(session, base, torrent_hash, _build_location(base_path, category))
@@ -631,12 +833,12 @@ async def async_setup_entry(
         if not store:
             return
 
-        queue = store["queue"]
-        if not queue:
-            return
-
         base, = _resolve_base(entry)
         if not base:
+            return
+
+        queue = store["queue"]
+        if not queue:
             return
 
         base_path = _resolve_base_path(entry)
@@ -674,6 +876,23 @@ async def async_setup_entry(
     unsub = async_track_time_interval(hass, _poll_queue, _POLL_INTERVAL)
     hass.data[DOMAIN][entry.entry_id]["unsub_poll"] = unsub
 
+    cleanup_time = _resolve_cleanup_time(entry)
+    if cleanup_time is not None:
+        cleanup_hour, cleanup_minute = cleanup_time
+
+        async def _run_scheduled_cleanup(now) -> None:
+            base, = _resolve_base(entry)
+            if not base:
+                return
+            temp_ha_path = _resolve_temp_ha_path(entry)
+            await _cleanup_temp_folders(hass, session, base, temp_ha_path)
+
+        unsub_cleanup = async_track_time_change(
+            hass, _run_scheduled_cleanup,
+            hour=cleanup_hour, minute=cleanup_minute, second=0,
+        )
+        hass.data[DOMAIN][entry.entry_id]["unsub_cleanup"] = unsub_cleanup
+
     hass.services.async_register(
         DOMAIN,
         "add_magnet",
@@ -708,5 +927,9 @@ async def async_unload_entry(
         unsub = store.get("unsub_poll")
         if unsub is not None:
             unsub()
+
+        unsub_cleanup = store.get("unsub_cleanup")
+        if unsub_cleanup is not None:
+            unsub_cleanup()
 
     return True
