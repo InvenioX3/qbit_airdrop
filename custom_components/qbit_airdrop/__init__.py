@@ -42,7 +42,7 @@ _EPISODE_TOKEN_RE = re.compile(r"\bS(\d{1,2})((?:E\d{1,3})+)\b", re.I)
 _EPISODE_NUM_RE = re.compile(r"E(\d{1,3})", re.I)
 
 _VIDEO_EXTS = {
-    ".mkv", ".mp4", ".avi", ".m4v", ".mov", ".ts", ".m2ts", ".wmv",
+    ".mkv", ".mp4", ".avi", ".m4v", ".mov", ".ts", ".m2ts", ".wmv", ".iso",
 }
 
 
