@@ -31,10 +31,6 @@ _LOGGER = logging.getLogger(__name__)
 _POLL_INTERVAL = timedelta(seconds=15)
 _COMMAND_DELAY = 0.25
 
-# Torrent states qBittorrent considers "settled" — fully downloaded and past
-# the completion-triggered move, whether currently seeding or not.
-_COMPLETE_STATES = {"uploading", "stalledup", "forcedup"}
-
 _LAGGARD_THRESHOLD = timedelta(minutes=10)
 _LAGGARD_INTERVAL = timedelta(minutes=30)
 
@@ -96,7 +92,7 @@ def _resolve_cleanup_time(entry: ConfigEntry) -> tuple[int, int] | None:
 def _folder_blocking_file(folder_path: str) -> str | None:
     """Returns the first non-.part filename found anywhere in folder_path's
     tree, or None if it contains nothing but .part files (or is empty) —
-    i.e. None means safe to remove once its torrent shows complete."""
+    i.e. None means safe to remove once the folder is orphaned."""
     for root, _dirs, files in os.walk(folder_path):
         for fname in files:
             if not fname.lower().endswith(".part"):
@@ -104,15 +100,18 @@ def _folder_blocking_file(folder_path: str) -> str | None:
     return None
 
 
-def _cleanup_temp_folders_sync(temp_root: str, complete_names: set[str]) -> dict:
+def _cleanup_temp_folders_sync(temp_root: str, existing_names: set[str]) -> dict:
     """Blocking filesystem work — must be run via hass.async_add_executor_job.
-    Returns diagnostic counts plus the list of folder paths actually removed."""
+    Returns diagnostic counts plus the list of folder paths actually removed.
+    A folder is only a removal candidate once no torrent — in any state —
+    still exists with that exact name; as long as qBittorrent still tracks
+    it at all (even just seeding), its folder is left alone."""
     result = {
         "scanned": 0,
-        "matched_name": 0,
+        "orphaned": 0,
         "removed": [],
-        "blocked": [],  # (folder_path, blocking_file) — matched a complete
-                        # torrent's name but still had real content in it
+        "blocked": [],  # (folder_path, blocking_file) — orphaned but still
+                        # had real content in it
     }
 
     try:
@@ -128,10 +127,10 @@ def _cleanup_temp_folders_sync(temp_root: str, complete_names: set[str]) -> dict
 
         result["scanned"] += 1
 
-        if name not in complete_names:
-            continue
+        if name in existing_names:
+            continue  # still tracked by qBittorrent, in any state
 
-        result["matched_name"] += 1
+        result["orphaned"] += 1
 
         blocking_file = _folder_blocking_file(folder_path)
         if blocking_file:
@@ -145,8 +144,6 @@ def _cleanup_temp_folders_sync(temp_root: str, complete_names: set[str]) -> dict
             _LOGGER.exception("[QBIT] temp cleanup: could not remove %s", folder_path)
 
     return result
-
-    return removed
 
 
 def _magnet_display_name(magnet: str) -> str:
@@ -305,34 +302,31 @@ async def _cleanup_temp_folders(hass, session, base, temp_ha_path) -> None:
 
     # The temp folder name and qBittorrent's own tracked torrent name are the
     # same string permanently — our renames only touch content inside that
-    # folder, never the folder itself or qBittorrent's own tracked name.
-    complete_names = {
-        str(t.get("name") or "")
-        for t in live
-        if str(t.get("state") or "").lower() in _COMPLETE_STATES
-    }
+    # folder, never the folder itself or qBittorrent's own tracked name. A
+    # folder is only a removal candidate once no torrent, in any state,
+    # still exists with that name — state doesn't matter, only whether it's
+    # still tracked at all.
+    existing_names = {str(t.get("name") or "") for t in live}
     _LOGGER.warning(
-        "[QBIT] temp cleanup: %d torrents total, %d in a complete state",
-        len(live), len(complete_names),
+        "[QBIT] temp cleanup: %d torrents currently tracked",
+        len(existing_names),
     )
-    if not complete_names:
-        return
 
     result = await hass.async_add_executor_job(
-        _cleanup_temp_folders_sync, temp_ha_path, complete_names,
+        _cleanup_temp_folders_sync, temp_ha_path, existing_names,
     )
     _LOGGER.warning(
-        "[QBIT] temp cleanup: %d folder(s) scanned, %d matched a complete "
-        "torrent's name, %d removed, %d blocked by leftover content",
-        result["scanned"], result["matched_name"],
+        "[QBIT] temp cleanup: %d folder(s) scanned, %d orphaned (no matching "
+        "torrent left), %d removed, %d blocked by leftover content",
+        result["scanned"], result["orphaned"],
         len(result["removed"]), len(result["blocked"]),
     )
     for path in result["removed"]:
         _LOGGER.debug("[QBIT] temp cleanup removed %s", path)
     for folder_path, blocking_file in result["blocked"]:
         _LOGGER.warning(
-            "[QBIT] temp cleanup: %s matched a complete torrent but was not "
-            "removed — blocked by %s",
+            "[QBIT] temp cleanup: %s was orphaned but was not removed — "
+            "blocked by %s",
             folder_path, blocking_file,
         )
 
