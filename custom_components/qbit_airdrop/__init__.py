@@ -312,6 +312,19 @@ async def _cleanup_temp_folders(hass, session, base, temp_ha_path) -> None:
         len(existing_names),
     )
 
+    # qBittorrent answered with 200 but reported zero torrents — never trust
+    # this enough to proceed. A momentary startup race, a transient bug, or
+    # any other reason the response undercounts would otherwise make every
+    # folder look orphaned and wipe them all. Skip this pass entirely rather
+    # than risk it; the next scheduled run (or a manual trigger) tries again.
+    if not existing_names:
+        _LOGGER.warning(
+            "[QBIT] temp cleanup: qBittorrent reported zero torrents — "
+            "treating as a suspicious response and skipping this pass "
+            "rather than risk mass-deleting folders"
+        )
+        return
+
     result = await hass.async_add_executor_job(
         _cleanup_temp_folders_sync, temp_ha_path, existing_names,
     )
