@@ -39,3 +39,10 @@ flush_orphaned:
   description: >-
     Remove any torrents from the pending rename queue that no longer exist
     in qBittorrent (e.g. deleted directly from the qBittorrent WebUI).
+
+run_cleanup:
+  name: Run temp folder cleanup
+  description: >-
+    Manually trigger the temp-folder cleanup pass immediately, instead of
+    waiting for its scheduled daily time. Logs a summary of what it found
+    and did.

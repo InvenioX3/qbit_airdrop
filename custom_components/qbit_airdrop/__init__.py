@@ -93,41 +93,58 @@ def _resolve_cleanup_time(entry: ConfigEntry) -> tuple[int, int] | None:
     return hour, minute
 
 
-def _folder_is_cleanup_safe(folder_path: str) -> bool:
-    """True if folder_path contains nothing but .part files anywhere in its
-    tree (or is empty) — safe to remove once its torrent shows complete."""
-    for _root, _dirs, files in os.walk(folder_path):
+def _folder_blocking_file(folder_path: str) -> str | None:
+    """Returns the first non-.part filename found anywhere in folder_path's
+    tree, or None if it contains nothing but .part files (or is empty) —
+    i.e. None means safe to remove once its torrent shows complete."""
+    for root, _dirs, files in os.walk(folder_path):
         for fname in files:
             if not fname.lower().endswith(".part"):
-                return False
-    return True
+                return os.path.join(root, fname)
+    return None
 
 
-def _cleanup_temp_folders_sync(temp_root: str, complete_names: set[str]) -> list[str]:
+def _cleanup_temp_folders_sync(temp_root: str, complete_names: set[str]) -> dict:
     """Blocking filesystem work — must be run via hass.async_add_executor_job.
-    Returns the list of folder paths actually removed."""
-    removed: list[str] = []
+    Returns diagnostic counts plus the list of folder paths actually removed."""
+    result = {
+        "scanned": 0,
+        "matched_name": 0,
+        "removed": [],
+        "blocked": [],  # (folder_path, blocking_file) — matched a complete
+                        # torrent's name but still had real content in it
+    }
+
     try:
         entries = os.listdir(temp_root)
     except OSError:
         _LOGGER.exception("[QBIT] temp cleanup: could not list %s", temp_root)
-        return removed
+        return result
 
     for name in entries:
-        if name not in complete_names:
-            continue
-
         folder_path = os.path.join(temp_root, name)
         if not os.path.isdir(folder_path):
             continue
-        if not _folder_is_cleanup_safe(folder_path):
+
+        result["scanned"] += 1
+
+        if name not in complete_names:
+            continue
+
+        result["matched_name"] += 1
+
+        blocking_file = _folder_blocking_file(folder_path)
+        if blocking_file:
+            result["blocked"].append((folder_path, blocking_file))
             continue
 
         try:
             shutil.rmtree(folder_path)
-            removed.append(folder_path)
+            result["removed"].append(folder_path)
         except OSError:
             _LOGGER.exception("[QBIT] temp cleanup: could not remove %s", folder_path)
+
+    return result
 
     return removed
 
@@ -294,14 +311,30 @@ async def _cleanup_temp_folders(hass, session, base, temp_ha_path) -> None:
         for t in live
         if str(t.get("state") or "").lower() in _COMPLETE_STATES
     }
+    _LOGGER.warning(
+        "[QBIT] temp cleanup: %d torrents total, %d in a complete state",
+        len(live), len(complete_names),
+    )
     if not complete_names:
         return
 
-    removed = await hass.async_add_executor_job(
+    result = await hass.async_add_executor_job(
         _cleanup_temp_folders_sync, temp_ha_path, complete_names,
     )
-    for path in removed:
+    _LOGGER.warning(
+        "[QBIT] temp cleanup: %d folder(s) scanned, %d matched a complete "
+        "torrent's name, %d removed, %d blocked by leftover content",
+        result["scanned"], result["matched_name"],
+        len(result["removed"]), len(result["blocked"]),
+    )
+    for path in result["removed"]:
         _LOGGER.debug("[QBIT] temp cleanup removed %s", path)
+    for folder_path, blocking_file in result["blocked"]:
+        _LOGGER.warning(
+            "[QBIT] temp cleanup: %s matched a complete torrent but was not "
+            "removed — blocked by %s",
+            folder_path, blocking_file,
+        )
 
 
 def _find_available_name(base_name: str, existing_names: set[str]) -> str:
@@ -818,6 +851,13 @@ async def async_setup_entry(
                 queue.pop(torrent_hash, None)
                 _LOGGER.debug("[QBIT] flush_orphaned removed hash=%s", torrent_hash)
 
+    async def run_cleanup(call: ServiceCall) -> None:
+        base, = _resolve_base(entry)
+        if not base:
+            return
+        temp_ha_path = _resolve_temp_ha_path(entry)
+        await _cleanup_temp_folders(hass, session, base, temp_ha_path)
+
     async def _poll_queue(now) -> None:
         if poll_lock.locked():
             _LOGGER.debug(
@@ -905,6 +945,12 @@ async def async_setup_entry(
         flush_orphaned,
     )
 
+    hass.services.async_register(
+        DOMAIN,
+        "run_cleanup",
+        run_cleanup,
+    )
+
     return True
 
 
@@ -920,6 +966,11 @@ async def async_unload_entry(
     hass.services.async_remove(
         DOMAIN,
         "flush_orphaned",
+    )
+
+    hass.services.async_remove(
+        DOMAIN,
+        "run_cleanup",
     )
 
     store = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
