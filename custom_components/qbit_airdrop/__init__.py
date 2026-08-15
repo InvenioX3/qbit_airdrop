@@ -353,10 +353,16 @@ def _find_available_name(base_name: str, existing_names: set[str]) -> str:
     return f"{base_name} ({n})"
 
 
-async def _collect_other_season_folders(session, base, torrent_hash, category) -> set[str]:
-    """Root-level folder names of other currently-tracked torrents in the
-    same category — the collision unit for TV is the season folder itself,
-    since episodes move as a bundle within it."""
+async def _collect_other_video_filenames(session, base, torrent_hash, category) -> set[str]:
+    """Video-file basenames (no extension) of other currently-tracked
+    torrents in the same category (empty string = category-less/movies).
+
+    The collision unit — for both movies and TV — is the individual video
+    file name, never a folder. Same show + same season is always meant to
+    merge into one shared season folder; the only genuine TV collision is
+    two torrents downloading the exact same episode at once, which shows up
+    as two files wanting the same name, not two folders wanting the same
+    name."""
     try:
         async with session.get(
             f"{base}/api/v2/torrents/info",
@@ -368,40 +374,6 @@ async def _collect_other_season_folders(session, base, torrent_hash, category) -
             others = await resp.json(content_type=None)
     except Exception:
         _LOGGER.exception("[QBIT] dedup: same-category fetch failed")
-        return set()
-
-    if not isinstance(others, list):
-        return set()
-
-    names = set()
-    for t in others:
-        other_hash = str(t.get("hash") or "").lower()
-        if other_hash == torrent_hash:
-            continue
-        other_index = await _fetch_index(session, base, other_hash)
-        if not other_index:
-            continue
-        other_root = _root_folder(other_index["folders"])
-        if other_root:
-            names.add(other_root)
-    return names
-
-
-async def _collect_other_movie_filenames(session, base, torrent_hash) -> set[str]:
-    """Video-file basenames (no extension) of other currently-tracked
-    category-less torrents — movies land as individual files, so the
-    collision unit is the file name itself, not a folder."""
-    try:
-        async with session.get(
-            f"{base}/api/v2/torrents/info",
-            params={"filter": "all", "category": ""},
-            timeout=10,
-        ) as resp:
-            if resp.status != 200:
-                return set()
-            others = await resp.json(content_type=None)
-    except Exception:
-        _LOGGER.exception("[QBIT] dedup: movie fetch failed")
         return set()
 
     if not isinstance(others, list):
@@ -558,10 +530,10 @@ async def _process_queue_item(session, base, base_path, movie_path, torrent_hash
         # own Default Save Path pointed. Explicitly relocate when a movie
         # path is configured.
         #
-        # Movies land as individual files (no bundling benefit like a season
-        # folder), so the dedup unit is the file name itself — check other
-        # currently-tracked category-less torrents for a collision.
-        other_names = await _collect_other_movie_filenames(session, base, torrent_hash)
+        # Movies land as individual files, so the dedup unit is the file
+        # name itself — check other currently-tracked category-less
+        # torrents for a collision.
+        other_names = await _collect_other_video_filenames(session, base, torrent_hash, "")
         target_name = _find_available_name(rename_name, other_names)
         ok &= await _rename_single_file_target(
             session, base, torrent_hash, files, largest, root_folder,
@@ -571,26 +543,29 @@ async def _process_queue_item(session, base, base_path, movie_path, torrent_hash
             ok &= await _set_location(session, base, torrent_hash, _build_location(movie_path))
 
     elif token_type == "se":
-        # TV episodes move as a bundle within their season folder, so the
-        # dedup unit is that folder name — check other currently-tracked
-        # same-category torrents for a collision.
-        other_names = await _collect_other_season_folders(session, base, torrent_hash, category)
-        season_target = _find_available_name(season, other_names)
+        # Same show + same season always merges into one shared season
+        # folder — that's not a collision. The only genuine TV collision is
+        # two torrents downloading the same episode at once, which shows up
+        # as two files wanting the same name.
+        other_names = await _collect_other_video_filenames(session, base, torrent_hash, category)
+        target_name = _find_available_name(rename_name, other_names)
         ok &= await _rename_single_file_target(
             session, base, torrent_hash, files, largest, root_folder,
-            season_target, rename_name, force_keep_all=is_bluray,
+            season, target_name, force_keep_all=is_bluray,
         )
         location = (
             _build_location(base_path, category)
-            if root_folder else _build_location(base_path, category, season_target)
+            if root_folder else _build_location(base_path, category, season)
         )
         ok &= await _set_location(session, base, torrent_hash, location)
 
     elif token_type in ("s", "season"):
-        # Same dedup unit as "se" — the season folder, since a whole pack's
-        # episodes move together within it.
-        other_names = await _collect_other_season_folders(session, base, torrent_hash, category)
-        season_target = _find_available_name(season, other_names)
+        # Same show + same season always merges into one shared season
+        # folder — that's not a collision. Each episode file is checked
+        # individually, since a pack can contain several, and each one
+        # could independently collide with a different in-progress
+        # duplicate download.
+        used_names = await _collect_other_video_filenames(session, base, torrent_hash, category)
 
         keep_ids = (
             {f["id"] for f in files} if is_bluray
@@ -610,16 +585,23 @@ async def _process_queue_item(session, base, base_path, movie_path, torrent_hash
                 continue
             episode = _detect_episode(os.path.basename(f["path"]))
             ext = os.path.splitext(f["path"])[1]
-            new_path = _sibling_path(f["path"], f"{category} {episode}{ext}")
+            target_name = _find_available_name(f"{category} {episode}", used_names)
+            used_names.add(target_name)
+            new_path = _sibling_path(f["path"], f"{target_name}{ext}")
             ok &= await _rename_file(session, base, torrent_hash, f["path"], new_path)
 
         if root_folder:
-            ok &= await _rename_folder(session, base, torrent_hash, root_folder, season_target)
+            ok &= await _rename_folder(session, base, torrent_hash, root_folder, season)
 
         ok &= await _apply_file_priorities(session, base, torrent_hash, files, keep_ids)
         ok &= await _set_location(session, base, torrent_hash, _build_location(base_path, category))
 
     elif token_type == "complete":
+        # Same per-file dedup as "s"/"season" — root folder merging into the
+        # category folder is intentional here regardless, so only the
+        # individual episode files need a collision check.
+        used_names = await _collect_other_video_filenames(session, base, torrent_hash, category)
+
         keep_ids = (
             {f["id"] for f in files} if is_bluray
             else {
@@ -638,7 +620,9 @@ async def _process_queue_item(session, base, base_path, movie_path, torrent_hash
                 continue
             episode = _detect_episode(os.path.basename(f["path"]))
             ext = os.path.splitext(f["path"])[1]
-            new_path = _sibling_path(f["path"], f"{category} {episode}{ext}")
+            target_name = _find_available_name(f"{category} {episode}", used_names)
+            used_names.add(target_name)
+            new_path = _sibling_path(f["path"], f"{target_name}{ext}")
             ok &= await _rename_file(session, base, torrent_hash, f["path"], new_path)
 
         # Rename nested season folders first — root rename happens last so
