@@ -1092,7 +1092,15 @@ async def async_setup_entry(
             if done:
                 if needs_remux:
                     meta["stage"] = "awaiting_remux"
+                    _LOGGER.warning(
+                        "[QBIT] rename/setLocation complete hash=%s category=%r — now awaiting remux",
+                        torrent_hash, meta.get("category"),
+                    )
                 else:
+                    _LOGGER.warning(
+                        "[QBIT] hash=%s done, no remux needed (unrecognized token type) — dropped from tracking",
+                        torrent_hash,
+                    )
                     store.torrents.pop(torrent_hash, None)
             else:
                 _LOGGER.warning(
