@@ -13,7 +13,7 @@ from urllib.parse import unquote_plus
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import aiohttp_client
-from homeassistant.helpers.event import async_track_time_interval, async_track_time_change
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -22,7 +22,6 @@ from .const import (
     CONF_DOWNLOAD_PATH,
     CONF_MOVIE_PATH,
     CONF_TEMP_HA_PATH,
-    CONF_CLEANUP_TIME,
 )
 from .util import resolve_base as _resolve_base
 
@@ -67,26 +66,6 @@ def _resolve_movie_path(entry: ConfigEntry) -> str:
 def _resolve_temp_ha_path(entry: ConfigEntry) -> str:
     data = entry.options or entry.data or {}
     return (data.get(CONF_TEMP_HA_PATH) or "").strip()
-
-
-def _resolve_cleanup_time(entry: ConfigEntry) -> tuple[int, int] | None:
-    data = entry.options or entry.data or {}
-    raw = (data.get(CONF_CLEANUP_TIME) or "").strip()
-    if not raw:
-        return None
-
-    try:
-        hour_str, minute_str = raw.split(":", 1)
-        hour, minute = int(hour_str), int(minute_str)
-    except (ValueError, AttributeError):
-        _LOGGER.warning("[QBIT] invalid cleanup_time %r — cleanup schedule disabled", raw)
-        return None
-
-    if not (0 <= hour <= 23 and 0 <= minute <= 59):
-        _LOGGER.warning("[QBIT] cleanup_time %r out of range — cleanup schedule disabled", raw)
-        return None
-
-    return hour, minute
 
 
 def _folder_blocking_file(folder_path: str) -> str | None:
@@ -907,23 +886,6 @@ async def async_setup_entry(
     unsub = async_track_time_interval(hass, _poll_queue, _POLL_INTERVAL)
     hass.data[DOMAIN][entry.entry_id]["unsub_poll"] = unsub
 
-    cleanup_time = _resolve_cleanup_time(entry)
-    if cleanup_time is not None:
-        cleanup_hour, cleanup_minute = cleanup_time
-
-        async def _run_scheduled_cleanup(now) -> None:
-            base, = _resolve_base(entry)
-            if not base:
-                return
-            temp_ha_path = _resolve_temp_ha_path(entry)
-            await _cleanup_temp_folders(hass, session, base, temp_ha_path)
-
-        unsub_cleanup = async_track_time_change(
-            hass, _run_scheduled_cleanup,
-            hour=cleanup_hour, minute=cleanup_minute, second=0,
-        )
-        hass.data[DOMAIN][entry.entry_id]["unsub_cleanup"] = unsub_cleanup
-
     hass.services.async_register(
         DOMAIN,
         "add_magnet",
@@ -969,9 +931,5 @@ async def async_unload_entry(
         unsub = store.get("unsub_poll")
         if unsub is not None:
             unsub()
-
-        unsub_cleanup = store.get("unsub_cleanup")
-        if unsub_cleanup is not None:
-            unsub_cleanup()
 
     return True

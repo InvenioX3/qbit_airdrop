@@ -13,7 +13,6 @@ from .const import (
     CONF_DOWNLOAD_PATH,
     CONF_MOVIE_PATH,
     CONF_TEMP_HA_PATH,
-    CONF_CLEANUP_TIME,
     CONF_CONFIRM_DELETE,
 )
 from .util import base_from_data
@@ -27,7 +26,6 @@ def _build_schema(defaults: dict) -> vol.Schema:
         vol.Optional(CONF_DOWNLOAD_PATH, default=defaults.get(CONF_DOWNLOAD_PATH, "")): str,
         vol.Optional(CONF_MOVIE_PATH, default=defaults.get(CONF_MOVIE_PATH, "")): str,
         vol.Optional(CONF_TEMP_HA_PATH, default=defaults.get(CONF_TEMP_HA_PATH, "")): str,
-        vol.Optional(CONF_CLEANUP_TIME, default=defaults.get(CONF_CLEANUP_TIME, "")): str,
         vol.Optional(CONF_CONFIRM_DELETE, default=defaults.get(CONF_CONFIRM_DELETE, False)): bool,
     })
 
@@ -44,7 +42,6 @@ def _normalize_input(user_input: dict) -> dict | None:
     normalized[CONF_DOWNLOAD_PATH] = (user_input.get(CONF_DOWNLOAD_PATH) or "").strip()
     normalized[CONF_MOVIE_PATH] = (user_input.get(CONF_MOVIE_PATH) or "").strip()
     normalized[CONF_TEMP_HA_PATH] = (user_input.get(CONF_TEMP_HA_PATH) or "").strip()
-    normalized[CONF_CLEANUP_TIME] = (user_input.get(CONF_CLEANUP_TIME) or "").strip()
     return normalized
 
 

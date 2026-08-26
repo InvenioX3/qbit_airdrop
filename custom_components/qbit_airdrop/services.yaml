@@ -43,6 +43,6 @@ flush_orphaned:
 run_cleanup:
   name: Run temp folder cleanup
   description: >-
-    Manually trigger the temp-folder cleanup pass immediately, instead of
-    waiting for its scheduled daily time. Logs a summary of what it found
-    and did.
+    Sweep the configured temp folder for orphaned leftovers and remove them.
+    This is the only way the cleanup runs — there is no automatic schedule.
+    Logs a summary of what it found and did.

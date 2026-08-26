@@ -11,7 +11,6 @@
           "download_path": "Download path:",
           "movie_path": "Movie save path:",
           "temp_ha_path": "Temp folder (HA path):",
-          "cleanup_time": "Cleanup time (HH:MM, 24h):",
           "confirm_delete": "Confirm before deleting a torrent and its files"
         }
       }
@@ -32,7 +31,6 @@
           "download_path": "Download path:",
           "movie_path": "Movie save path:",
           "temp_ha_path": "Temp folder (HA path):",
-          "cleanup_time": "Cleanup time (HH:MM, 24h):",
           "confirm_delete": "Confirm before deleting a torrent and its files"
         }
       }
