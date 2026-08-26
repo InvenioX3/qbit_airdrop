@@ -712,9 +712,9 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
     ssh_username = _resolve_ssh_username(entry)
     mkvmerge_path = _resolve_mkvmerge_path(entry)
     if not (ssh_host and ssh_username and mkvmerge_path):
-        _LOGGER.debug(
-            "[QBIT] remux pass: SSH not fully configured (host=%r user=%r mkvmerge=%r) — "
-            "%d torrent(s) waiting",
+        _LOGGER.warning(
+            "[QBIT] remux pass: SSH not fully configured (host=%r user=%r mkvmerge_path=%r) — "
+            "%d torrent(s) waiting in awaiting_remux, none will be processed until all three are set",
             ssh_host, ssh_username, mkvmerge_path, len(pending_remux),
         )
         return
