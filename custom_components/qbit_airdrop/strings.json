@@ -7,11 +7,14 @@
         "data": {
           "host": "Host",
           "port": "Port",
-          "base_path": "Category save path:",
-          "download_path": "Download path:",
-          "movie_path": "Movie save path:",
+          "base_path": "TV Shows save path:",
+          "download_path": "Qbittorrent default save path:",
+          "movie_path": "Movies save path:",
           "temp_ha_path": "Temp folder (HA path):",
-          "confirm_delete": "Confirm before deleting a torrent and its files"
+          "confirm_delete": "Confirm before deleting a torrent and its files",
+          "ssh_port": "Mkvmerge host SSH port:",
+          "ssh_username": "Mkvmerge host SSH username:",
+          "mkvmerge_path": "Path to mkvmerge.exe on that host:"
         }
       }
     },
@@ -27,11 +30,14 @@
         "data": {
           "host": "Host",
           "port": "Port",
-          "base_path": "Category save path:",
-          "download_path": "Download path:",
-          "movie_path": "Movie save path:",
+          "base_path": "TV Shows save path:",
+          "download_path": "Qbittorrent default save path:",
+          "movie_path": "Movies save path:",
           "temp_ha_path": "Temp folder (HA path):",
-          "confirm_delete": "Confirm before deleting a torrent and its files"
+          "confirm_delete": "Confirm before deleting a torrent and its files",
+          "ssh_port": "Mkvmerge host SSH port:",
+          "ssh_username": "Mkvmerge host SSH username:",
+          "mkvmerge_path": "Path to mkvmerge.exe on that host:"
         }
       }
     },

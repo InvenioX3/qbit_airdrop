@@ -11,6 +11,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
+from . import remux
 from .const import DOMAIN
 from .util import resolve_base as _resolve_base
 
@@ -31,8 +32,12 @@ class QbitAirdropActiveView(HomeAssistantView):
         if not base:
             return web.json_response({"ok": False, "error": "qB base not configured"}, status=400)
 
-        store = self.hass.data.get(DOMAIN, {}).get(self.entry.entry_id) or {}
-        queue_hashes = set((store.get("queue") or {}).keys())
+        data_store = self.hass.data.get(DOMAIN, {}).get(self.entry.entry_id) or {}
+        torrent_store = data_store.get("store")
+        queue_hashes = (
+            {h for h, rec in torrent_store.torrents.items() if rec.get("stage") == "pending"}
+            if torrent_store else set()
+        )
 
         session = async_get_clientsession(self.hass)
         try:
@@ -106,6 +111,7 @@ class QbitAirdropActiveView(HomeAssistantView):
                     "num_seeds": obj.get("num_seeds", 0),
                     "num_complete": obj.get("num_complete", 0),
                     "added_on": obj.get("added_on", 0),
+                    "tags": str(obj.get("tags") or ""),
                 })
 
         # read confirm_delete flag from entry data/options
@@ -153,12 +159,14 @@ class QbitAirdropDeleteView(HomeAssistantView):
             _LOGGER.error("qB POST error: %s", err)
             return web.json_response({"ok": False, "error": "Request error"}, status=502)
 
-        store = self.hass.data.get(DOMAIN, {}).get(self.entry.entry_id)
-        if store is not None:
-            removed = store["queue"].pop(thash, None)
+        data_store = self.hass.data.get(DOMAIN, {}).get(self.entry.entry_id)
+        torrent_store = data_store.get("store") if data_store else None
+        if torrent_store is not None:
+            removed = torrent_store.torrents.pop(thash, None)
             if removed is not None:
+                await torrent_store.async_save()
                 _LOGGER.debug(
-                    "[QBIT] removed hash=%s from pending queue after delete",
+                    "[QBIT] removed hash=%s from tracking after delete",
                     thash,
                 )
 
@@ -209,6 +217,23 @@ class QbitAirdropStatsView(HomeAssistantView):
             "free_space": free_space,
             "external_ip": external_ip,
         })
+
+
+class QbitAirdropSshKeyView(HomeAssistantView):
+    """Returns the public half of the auto-generated SSH keypair used to
+    reach the mkvmerge host — add it to that host's authorized_keys once.
+    The private key never leaves HA's own storage."""
+    url = "/api/qbit_airdrop/ssh_pubkey"
+    name = "qbit_airdrop:ssh_pubkey"
+    requires_auth = True
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self.entry = entry
+
+    async def get(self, request) -> web.Response:
+        _private_key, public_key = await remux.get_or_create_keypair(self.hass, self.entry.entry_id)
+        return web.json_response({"ok": True, "public_key": public_key})
 
 
 class QbitAirdropForceStartView(HomeAssistantView):

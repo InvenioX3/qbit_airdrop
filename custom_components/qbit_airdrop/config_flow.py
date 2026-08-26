@@ -14,6 +14,9 @@ from .const import (
     CONF_MOVIE_PATH,
     CONF_TEMP_HA_PATH,
     CONF_CONFIRM_DELETE,
+    CONF_SSH_PORT,
+    CONF_SSH_USERNAME,
+    CONF_MKVMERGE_PATH,
 )
 from .util import base_from_data
 
@@ -27,6 +30,9 @@ def _build_schema(defaults: dict) -> vol.Schema:
         vol.Optional(CONF_MOVIE_PATH, default=defaults.get(CONF_MOVIE_PATH, "")): str,
         vol.Optional(CONF_TEMP_HA_PATH, default=defaults.get(CONF_TEMP_HA_PATH, "")): str,
         vol.Optional(CONF_CONFIRM_DELETE, default=defaults.get(CONF_CONFIRM_DELETE, False)): bool,
+        vol.Optional(CONF_SSH_PORT, default=defaults.get(CONF_SSH_PORT, 22)): int,
+        vol.Optional(CONF_SSH_USERNAME, default=defaults.get(CONF_SSH_USERNAME, "")): str,
+        vol.Optional(CONF_MKVMERGE_PATH, default=defaults.get(CONF_MKVMERGE_PATH, "")): str,
     })
 
 
@@ -42,6 +48,8 @@ def _normalize_input(user_input: dict) -> dict | None:
     normalized[CONF_DOWNLOAD_PATH] = (user_input.get(CONF_DOWNLOAD_PATH) or "").strip()
     normalized[CONF_MOVIE_PATH] = (user_input.get(CONF_MOVIE_PATH) or "").strip()
     normalized[CONF_TEMP_HA_PATH] = (user_input.get(CONF_TEMP_HA_PATH) or "").strip()
+    normalized[CONF_SSH_USERNAME] = (user_input.get(CONF_SSH_USERNAME) or "").strip()
+    normalized[CONF_MKVMERGE_PATH] = (user_input.get(CONF_MKVMERGE_PATH) or "").strip()
     return normalized
 
 

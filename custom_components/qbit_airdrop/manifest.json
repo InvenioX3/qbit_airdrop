@@ -10,7 +10,7 @@
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/InvenioX3/qbit_airdrop/issues",
   "name": "Qbit Airdrop",
-  "requirements": [],
+  "requirements": ["asyncssh>=2.14.0"],
   "single_config_entry": true,
   "version": "1.0.0"
 }

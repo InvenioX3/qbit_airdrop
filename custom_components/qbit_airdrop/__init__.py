@@ -16,13 +16,20 @@ from homeassistant.helpers import aiohttp_client
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
 
+from . import remux
 from .const import (
     DOMAIN,
     CONF_BASE_PATH,
     CONF_DOWNLOAD_PATH,
     CONF_MOVIE_PATH,
     CONF_TEMP_HA_PATH,
+    CONF_SSH_PORT,
+    CONF_SSH_USERNAME,
+    CONF_MKVMERGE_PATH,
+    TAG_REMUXED,
+    TAG_REMUX_SKIPPED,
 )
+from .store import TorrentStore
 from .util import resolve_base as _resolve_base
 
 _LOGGER = logging.getLogger(__name__)
@@ -66,6 +73,35 @@ def _resolve_movie_path(entry: ConfigEntry) -> str:
 def _resolve_temp_ha_path(entry: ConfigEntry) -> str:
     data = entry.options or entry.data or {}
     return (data.get(CONF_TEMP_HA_PATH) or "").strip()
+
+
+def _resolve_ssh_host(entry: ConfigEntry) -> str:
+    # SSH targets the same machine that hosts qBittorrent (and mkvmerge) —
+    # reuse the connection host field, stripped of any scheme/port the user
+    # may have included there for the WebUI connection.
+    data = entry.options or entry.data or {}
+    host = (data.get("host") or "").strip().strip("/")
+    if "://" in host:
+        host = host.split("://", 1)[1]
+    return host.split(":", 1)[0]
+
+
+def _resolve_ssh_port(entry: ConfigEntry) -> int:
+    data = entry.options or entry.data or {}
+    try:
+        return int(data.get(CONF_SSH_PORT) or 22)
+    except (TypeError, ValueError):
+        return 22
+
+
+def _resolve_ssh_username(entry: ConfigEntry) -> str:
+    data = entry.options or entry.data or {}
+    return (data.get(CONF_SSH_USERNAME) or "").strip()
+
+
+def _resolve_mkvmerge_path(entry: ConfigEntry) -> str:
+    data = entry.options or entry.data or {}
+    return (data.get(CONF_MKVMERGE_PATH) or "").strip()
 
 
 def _cleanup_temp_folders_sync(temp_root: str, existing_names: set[str]) -> dict:
@@ -203,7 +239,7 @@ def _build_location(base_path: str, *parts: str) -> str:
     return "\\".join(segments) + "\\"
 
 
-async def _fetch_index(session, base: str, torrent_hash: str) -> dict | None:
+async def _fetch_index(session, base, torrent_hash: str) -> dict | None:
     try:
         async with session.get(
             f"{base}/api/v2/torrents/files",
@@ -310,43 +346,48 @@ def _find_available_name(base_name: str, existing_names: set[str]) -> str:
     return f"{base_name} ({n})"
 
 
-async def _collect_other_video_filenames(session, base, torrent_hash, category) -> set[str]:
-    """Video-file basenames (no extension) of other currently-tracked
-    torrents in the same category (empty string = category-less/movies).
+async def _collect_other_video_filenames(session, base, torrent_hash, category, torrents: dict) -> set[str]:
+    """Video-file basenames (no extension) of other tracked torrents in the
+    same internal category (empty string = category-less/movies) — scoped
+    off our own persistent record now that qBittorrent's own category field
+    is never set.
 
     The collision unit — for both movies and TV — is the individual video
     file name, never a folder. Same show + same season is always meant to
     merge into one shared season folder; the only genuine TV collision is
-    two torrents downloading the exact same episode at once, which shows up
-    as two files wanting the same name, not two folders wanting the same
-    name."""
-    try:
-        async with session.get(
-            f"{base}/api/v2/torrents/info",
-            params={"filter": "all", "category": category},
-            timeout=10,
-        ) as resp:
-            if resp.status != 200:
-                return set()
-            others = await resp.json(content_type=None)
-    except Exception:
-        _LOGGER.exception("[QBIT] dedup: same-category fetch failed")
-        return set()
+    two torrents wanting the same episode at once, which shows up as two
+    files wanting the same name.
 
-    if not isinstance(others, list):
-        return set()
-
+    Still-queued (pending, pre-metadata) "se" torrents and movies haven't
+    been renamed yet, but their eventual filename is already known from
+    rename_name at add time — checked directly rather than skipped, closing
+    the race where two same-episode (or same-movie) torrents are added
+    back-to-back before either reaches metadata. Season-pack types
+    ("s"/"season"/"complete") can't be checked this way since their
+    individual episode names aren't known until metadata arrives — a
+    narrower, accepted gap."""
     names = set()
-    for t in others:
-        other_hash = str(t.get("hash") or "").lower()
+
+    for other_hash, rec in torrents.items():
         if other_hash == torrent_hash:
             continue
+        if (rec.get("category") or "") != category:
+            continue
+
+        if rec.get("stage") == "pending":
+            if rec.get("token_type") == "se" or not category:
+                nm = rec.get("rename_name")
+                if nm:
+                    names.add(nm)
+            continue
+
         other_index = await _fetch_index(session, base, other_hash)
         if not other_index:
             continue
         for f in other_index["files"]:
             if _is_video(f["path"]):
                 names.add(os.path.splitext(os.path.basename(f["path"]))[0])
+
     return names
 
 
@@ -396,14 +437,10 @@ async def _rename_file(session, base, torrent_hash, old_path, new_path) -> bool:
     )
 
 
-async def _set_location(session, base, torrent_hash, location) -> bool:
-    if not location:
-        return True
-
+async def _add_tags(session, base, torrent_hash, tags: str) -> bool:
     return await _qbit_command(
-        session, base, "setLocation",
-        {"hashes": torrent_hash, "location": location},
-        timeout=30,
+        session, base, "addTags",
+        {"hashes": torrent_hash, "tags": tags},
     )
 
 
@@ -458,7 +495,16 @@ async def _rename_single_file_target(
     return ok
 
 
-async def _process_queue_item(session, base, base_path, movie_path, torrent_hash, meta, index) -> bool:
+async def _process_queue_item(
+    session, base, base_path, movie_path, torrent_hash, meta, index, torrents,
+) -> tuple[bool, str]:
+    """Renames per the existing classification pipeline. No location-changing
+    API call is made here (Goal 2) — instead the destination this torrent
+    would have moved to is computed and returned, for the caller to hand off
+    to the remux stage. Returns (done, dest_path); dest_path is "" when
+    either the token type is unrecognized or no destination path is
+    configured for that content type — in both cases there is nothing for a
+    later remux pass to do."""
     token_type = meta["token_type"]
     category = meta["category"]
     season = meta["season"]
@@ -479,42 +525,38 @@ async def _process_queue_item(session, base, base_path, movie_path, torrent_hash
     )
 
     ok = True
+    dest_path = ""
 
     if not category:
         # Movie (token_type "year", or unclassified — no season signal at all).
-        # Movies have no category, so unlike every other branch they were
-        # never explicitly relocated — they just landed wherever qBittorrent's
-        # own Default Save Path pointed. Explicitly relocate when a movie
-        # path is configured.
-        #
         # Movies land as individual files, so the dedup unit is the file
         # name itself — check other currently-tracked category-less
         # torrents for a collision.
-        other_names = await _collect_other_video_filenames(session, base, torrent_hash, "")
+        other_names = await _collect_other_video_filenames(session, base, torrent_hash, "", torrents)
         target_name = _find_available_name(rename_name, other_names)
         ok &= await _rename_single_file_target(
             session, base, torrent_hash, files, largest, root_folder,
             target_name, target_name, force_keep_all=is_bluray,
         )
         if movie_path:
-            ok &= await _set_location(session, base, torrent_hash, _build_location(movie_path))
+            dest_path = _build_location(movie_path)
 
     elif token_type == "se":
         # Same show + same season always merges into one shared season
         # folder — that's not a collision. The only genuine TV collision is
         # two torrents downloading the same episode at once, which shows up
         # as two files wanting the same name.
-        other_names = await _collect_other_video_filenames(session, base, torrent_hash, category)
+        other_names = await _collect_other_video_filenames(session, base, torrent_hash, category, torrents)
         target_name = _find_available_name(rename_name, other_names)
         ok &= await _rename_single_file_target(
             session, base, torrent_hash, files, largest, root_folder,
             season, target_name, force_keep_all=is_bluray,
         )
-        location = (
-            _build_location(base_path, category)
-            if root_folder else _build_location(base_path, category, season)
-        )
-        ok &= await _set_location(session, base, torrent_hash, location)
+        if base_path:
+            dest_path = (
+                _build_location(base_path, category)
+                if root_folder else _build_location(base_path, category, season)
+            )
 
     elif token_type in ("s", "season"):
         # Same show + same season always merges into one shared season
@@ -522,7 +564,7 @@ async def _process_queue_item(session, base, base_path, movie_path, torrent_hash
         # individually, since a pack can contain several, and each one
         # could independently collide with a different in-progress
         # duplicate download.
-        used_names = await _collect_other_video_filenames(session, base, torrent_hash, category)
+        used_names = await _collect_other_video_filenames(session, base, torrent_hash, category, torrents)
 
         keep_ids = (
             {f["id"] for f in files} if is_bluray
@@ -551,13 +593,14 @@ async def _process_queue_item(session, base, base_path, movie_path, torrent_hash
             ok &= await _rename_folder(session, base, torrent_hash, root_folder, season)
 
         ok &= await _apply_file_priorities(session, base, torrent_hash, files, keep_ids)
-        ok &= await _set_location(session, base, torrent_hash, _build_location(base_path, category))
+        if base_path:
+            dest_path = _build_location(base_path, category)
 
     elif token_type == "complete":
         # Same per-file dedup as "s"/"season" — root folder merging into the
         # category folder is intentional here regardless, so only the
         # individual episode files need a collision check.
-        used_names = await _collect_other_video_filenames(session, base, torrent_hash, category)
+        used_names = await _collect_other_video_filenames(session, base, torrent_hash, category, torrents)
 
         keep_ids = (
             {f["id"] for f in files} if is_bluray
@@ -601,23 +644,107 @@ async def _process_queue_item(session, base, base_path, movie_path, torrent_hash
 
         ok &= await _apply_file_priorities(session, base, torrent_hash, files, keep_ids)
 
-        # Root folder was just renamed to `category` itself — setLocation only
-        # needs base_path, or the move produces base_path/category/category/...
-        location = (
-            _build_location(base_path)
-            if root_folder else _build_location(base_path, category)
-        )
-        ok &= await _set_location(session, base, torrent_hash, location)
+        # Root folder was just renamed to `category` itself — the resolved
+        # destination only needs base_path, or it'd end up base_path/category/category/...
+        if base_path:
+            dest_path = (
+                _build_location(base_path)
+                if root_folder else _build_location(base_path, category)
+            )
 
     else:
         _LOGGER.warning(
             "[QBIT] unrecognized token_type=%s hash=%s — skipping rename pipeline",
             token_type, torrent_hash,
         )
-        return True
+        return True, ""
 
     ok &= await _start_torrent(session, base, torrent_hash)
-    return ok
+    return ok, (dest_path if ok else "")
+
+
+_COMPLETE_STATE_SUFFIX = "up"
+
+
+async def _run_remux_pass(hass, entry, session, base, store) -> None:
+    pending_remux = {h: rec for h, rec in store.torrents.items() if rec.get("stage") == "awaiting_remux"}
+    if not pending_remux:
+        return
+
+    ssh_host = _resolve_ssh_host(entry)
+    ssh_username = _resolve_ssh_username(entry)
+    mkvmerge_path = _resolve_mkvmerge_path(entry)
+    if not (ssh_host and ssh_username and mkvmerge_path):
+        return
+
+    try:
+        async with session.get(
+            f"{base}/api/v2/torrents/info",
+            params={"filter": "all"},
+            timeout=10,
+        ) as resp:
+            if resp.status != 200:
+                return
+            live = await resp.json(content_type=None)
+    except Exception:
+        _LOGGER.exception("[QBIT] remux pass: torrent list fetch failed")
+        return
+
+    if not isinstance(live, list):
+        return
+
+    live_by_hash = {str(t.get("hash") or "").lower(): t for t in live}
+    ssh_port = _resolve_ssh_port(entry)
+    private_key, _public_key = await remux.get_or_create_keypair(hass, entry.entry_id)
+
+    for torrent_hash, rec in pending_remux.items():
+        t = live_by_hash.get(torrent_hash)
+        if not t:
+            continue
+
+        state = str(t.get("state") or "").lower()
+        if not state.endswith(_COMPLETE_STATE_SUFFIX):
+            continue
+
+        tag_set = {tg.strip() for tg in str(t.get("tags") or "").split(",") if tg.strip()}
+        if TAG_REMUXED in tag_set or TAG_REMUX_SKIPPED in tag_set:
+            continue
+
+        dest_dir = rec.get("dest_path") or ""
+        if not dest_dir:
+            continue
+
+        index = await _fetch_index(session, base, torrent_hash)
+        if not index:
+            continue
+        videos = [f for f in index["files"] if _is_video(f["path"])]
+        if not videos:
+            continue
+        largest = max(videos, key=lambda f: f["size"])
+
+        save_path = str(t.get("save_path") or "").rstrip("\\/")
+        source_path = f"{save_path}\\{largest['path'].replace('/', chr(92))}"
+        file_name = os.path.basename(largest["path"])
+        dest_path = f"{dest_dir.rstrip(chr(92))}\\{file_name}"
+
+        _LOGGER.debug(
+            "[QBIT] remux pass: attempting hash=%s source=%s dest=%s",
+            torrent_hash, source_path, dest_path,
+        )
+
+        success, skipped = await remux.remux_file(
+            ssh_host, ssh_port, ssh_username, private_key, mkvmerge_path,
+            source_path, dest_path,
+        )
+
+        if skipped:
+            await _add_tags(session, base, torrent_hash, TAG_REMUX_SKIPPED)
+            _LOGGER.warning("[QBIT] remux skipped (undefined language) hash=%s", torrent_hash)
+        elif success:
+            await _add_tags(session, base, torrent_hash, TAG_REMUXED)
+            _LOGGER.debug("[QBIT] remux succeeded hash=%s", torrent_hash)
+        else:
+            _LOGGER.warning("[QBIT] remux failed hash=%s — will retry next pass", torrent_hash)
 
 
 async def async_setup(
@@ -636,6 +763,7 @@ async def async_setup_entry(
         QbitAirdropDeleteView,
         QbitAirdropForceStartView,
         QbitAirdropStatsView,
+        QbitAirdropSshKeyView,
     )
 
     hass.http.register_view(
@@ -666,12 +794,28 @@ async def async_setup_entry(
         )
     )
 
+    hass.http.register_view(
+        QbitAirdropSshKeyView(
+            hass,
+            entry,
+        )
+    )
+
     session = aiohttp_client.async_get_clientsession(hass)
     poll_lock = asyncio.Lock()
 
+    store = TorrentStore(hass, entry.entry_id)
+    await store.async_load()
+
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
-        "queue": {},
+        "store": store,
     }
+
+    # Generate the SSH keypair up front (idempotent — a no-op once one
+    # exists) so the public key is available via QbitAirdropSshKeyView as
+    # soon as the integration loads, rather than only after the first remux
+    # attempt.
+    await remux.get_or_create_keypair(hass, entry.entry_id)
 
     async def add_magnet(call: ServiceCall) -> None:
         data = call.data or {}
@@ -698,8 +842,9 @@ async def async_setup_entry(
             or ""
         ).strip()
 
-        if category:
-            form["category"] = category
+        # category is intentionally never sent to qBittorrent — it never
+        # drove file placement (every move was always an explicit API call),
+        # so it's kept only as our own internal classification field.
 
         download_path_base = _resolve_download_path(entry)
         if download_path_base:
@@ -754,22 +899,20 @@ async def async_setup_entry(
             torrent_hash,
         )
 
-        hass.data[DOMAIN][entry.entry_id]["queue"][torrent_hash] = {
+        store.torrents[torrent_hash] = {
             "category": category,
             "rename_name": (data.get("rename_name") or "").strip(),
             "token_type": (data.get("token_type") or "").strip(),
             "season": (data.get("season") or "").strip(),
+            "dest_path": "",
+            "stage": "pending",
             "added_at": dt_util.utcnow(),
             "last_checked_at": None,
         }
+        await store.async_save()
 
     async def flush_orphaned(call: ServiceCall) -> None:
-        store = hass.data.get(DOMAIN, {}).get(entry.entry_id)
-        if not store:
-            return
-
-        queue = store["queue"]
-        if not queue:
+        if not store.torrents:
             return
 
         base, = _resolve_base(entry)
@@ -794,10 +937,15 @@ async def async_setup_entry(
             if isinstance(live, list) else set()
         )
 
-        for torrent_hash in list(queue):
+        changed = False
+        for torrent_hash in list(store.torrents):
             if torrent_hash not in live_hashes:
-                queue.pop(torrent_hash, None)
+                store.torrents.pop(torrent_hash, None)
+                changed = True
                 _LOGGER.debug("[QBIT] flush_orphaned removed hash=%s", torrent_hash)
+
+        if changed:
+            await store.async_save()
 
     async def run_cleanup(call: ServiceCall) -> None:
         base, = _resolve_base(entry)
@@ -817,34 +965,31 @@ async def async_setup_entry(
             await _run_poll_pass(now)
 
     async def _run_poll_pass(now) -> None:
-        store = hass.data.get(DOMAIN, {}).get(entry.entry_id)
-        if not store:
-            return
-
         base, = _resolve_base(entry)
         if not base:
-            return
-
-        queue = store["queue"]
-        if not queue:
             return
 
         base_path = _resolve_base_path(entry)
         movie_path = _resolve_movie_path(entry)
 
-        for torrent_hash, meta in list(queue.items()):
+        pending = {h: rec for h, rec in store.torrents.items() if rec.get("stage") == "pending"}
+        changed = False
+
+        for torrent_hash, meta in pending.items():
             if not _is_due(meta, now):
                 continue
 
             meta["last_checked_at"] = now
+            changed = True
 
             index = await _fetch_index(session, base, torrent_hash)
             if index is None:
                 continue
 
             try:
-                done = await _process_queue_item(
+                done, dest_path = await _process_queue_item(
                     session, base, base_path, movie_path, torrent_hash, meta, index,
+                    store.torrents,
                 )
             except Exception:
                 _LOGGER.exception(
@@ -854,12 +999,21 @@ async def async_setup_entry(
                 continue
 
             if done:
-                queue.pop(torrent_hash, None)
+                if dest_path:
+                    meta["stage"] = "awaiting_remux"
+                    meta["dest_path"] = dest_path
+                else:
+                    store.torrents.pop(torrent_hash, None)
             else:
                 _LOGGER.warning(
                     "[QBIT] queue retry hash=%s — one or more steps failed, retrying next tick",
                     torrent_hash,
                 )
+
+        if changed:
+            await store.async_save()
+
+        await _run_remux_pass(hass, entry, session, base, store)
 
     unsub = async_track_time_interval(hass, _poll_queue, _POLL_INTERVAL)
     hass.data[DOMAIN][entry.entry_id]["unsub_poll"] = unsub

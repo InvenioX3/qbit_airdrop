@@ -11,7 +11,10 @@ add_magnet:
         text: {}
     category:
       name: Category
-      description: Series name used as the qBittorrent category. Leave blank for movies.
+      description: >-
+        Series name used internally for classification, dedup scoping, and
+        destination-path construction. Leave blank for movies. Never sent to
+        qBittorrent itself — it has no bearing on file placement.
       required: false
       selector:
         text: {}
