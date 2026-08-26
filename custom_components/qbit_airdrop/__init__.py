@@ -762,16 +762,17 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
     for torrent_hash, rec in pending_remux.items():
         t = live_by_hash.get(torrent_hash)
         if not t:
-            _LOGGER.debug("[QBIT] remux pass: hash=%s no longer in qBittorrent, skipping", torrent_hash)
+            _LOGGER.warning("[QBIT] remux pass: hash=%s no longer in qBittorrent, skipping", torrent_hash)
             continue
 
         state = str(t.get("state") or "").lower()
         if not state.endswith(_COMPLETE_STATE_SUFFIX):
-            _LOGGER.debug("[QBIT] remux pass: hash=%s not complete yet (state=%s)", torrent_hash, state)
+            _LOGGER.warning("[QBIT] remux pass: hash=%s not complete yet (state=%s)", torrent_hash, state)
             continue
 
         tag_set = {tg.strip() for tg in str(t.get("tags") or "").split(",") if tg.strip()}
         if TAG_REMUXED in tag_set or TAG_REMUX_SKIPPED in tag_set:
+            _LOGGER.warning("[QBIT] remux pass: hash=%s already tagged %s, skipping", torrent_hash, tag_set)
             continue
 
         category = rec.get("category") or ""
@@ -779,24 +780,25 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
         season = rec.get("season") or ""
 
         if not category and not movie_path:
-            _LOGGER.debug("[QBIT] remux pass: hash=%s is a movie but Movies save path isn't configured", torrent_hash)
+            _LOGGER.warning("[QBIT] remux pass: hash=%s is a movie but Movies save path isn't configured", torrent_hash)
             continue
         if category and not tv_shows_path:
-            _LOGGER.debug("[QBIT] remux pass: hash=%s is TV but TV Shows save path isn't configured", torrent_hash)
+            _LOGGER.warning("[QBIT] remux pass: hash=%s is TV but TV Shows save path isn't configured", torrent_hash)
             continue
 
         index = await _fetch_index(session, base, torrent_hash)
         if not index:
-            _LOGGER.debug("[QBIT] remux pass: hash=%s file index fetch failed", torrent_hash)
+            _LOGGER.warning("[QBIT] remux pass: hash=%s file index fetch failed", torrent_hash)
             continue
 
         save_path = str(t.get("save_path") or "").rstrip("\\/")
-        videos = [
-            f for f in index["files"]
-            if _is_video(f["path"]) and f.get("priority") != 0
-        ]
+        all_video_files = [f for f in index["files"] if _is_video(f["path"])]
+        videos = [f for f in all_video_files if f.get("priority") != 0]
         if not videos:
-            _LOGGER.debug("[QBIT] remux pass: hash=%s no eligible (kept) video files found", torrent_hash)
+            _LOGGER.warning(
+                "[QBIT] remux pass: hash=%s no eligible (kept) video files — all video files priority=0? %s",
+                torrent_hash, [(f["path"], f.get("priority")) for f in all_video_files],
+            )
             continue
 
         _LOGGER.warning(
@@ -804,54 +806,61 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
             torrent_hash, category, token_type, len(videos), save_path,
         )
 
-        all_succeeded = True
-        any_skipped = False
+        try:
+            all_succeeded = True
+            any_skipped = False
 
-        for f in videos:
-            file_name = os.path.basename(f["path"])
-            source_path = f"{save_path}\\{f['path'].replace('/', chr(92))}"
-            dest_dir = _remux_dest_dir(tv_shows_path, movie_path, category, token_type, season, f["path"])
-            dest_path = f"{dest_dir.rstrip(chr(92))}\\{file_name}"
+            for f in videos:
+                file_name = os.path.basename(f["path"])
+                source_path = f"{save_path}\\{f['path'].replace('/', chr(92))}"
+                dest_dir = _remux_dest_dir(tv_shows_path, movie_path, category, token_type, season, f["path"])
+                dest_path = f"{dest_dir.rstrip(chr(92))}\\{file_name}"
 
-            _LOGGER.warning(
-                "[QBIT] remux pass: hash=%s attempting file=%s source=%s dest=%s",
-                torrent_hash, file_name, source_path, dest_path,
-            )
-
-            success, skipped = await remux.remux_file(
-                ssh_host, ssh_port, ssh_username, private_key, mkvmerge_path,
-                source_path, dest_path, nas_username, nas_password,
-            )
-
-            if skipped:
                 _LOGGER.warning(
-                    "[QBIT] remux pass: hash=%s file=%s SKIPPED — undefined-language track present",
-                    torrent_hash, file_name,
+                    "[QBIT] remux pass: hash=%s attempting file=%s source=%s dest=%s",
+                    torrent_hash, file_name, source_path, dest_path,
                 )
-                any_skipped = True
-            elif success:
-                _LOGGER.warning(
-                    "[QBIT] remux pass: hash=%s file=%s SUCCEEDED -> %s",
-                    torrent_hash, file_name, dest_path,
+
+                success, skipped = await remux.remux_file(
+                    ssh_host, ssh_port, ssh_username, private_key, mkvmerge_path,
+                    source_path, dest_path, nas_username, nas_password,
                 )
+
+                if skipped:
+                    _LOGGER.warning(
+                        "[QBIT] remux pass: hash=%s file=%s SKIPPED — undefined-language track present",
+                        torrent_hash, file_name,
+                    )
+                    any_skipped = True
+                elif success:
+                    _LOGGER.warning(
+                        "[QBIT] remux pass: hash=%s file=%s SUCCEEDED -> %s",
+                        torrent_hash, file_name, dest_path,
+                    )
+                else:
+                    _LOGGER.warning(
+                        "[QBIT] remux pass: hash=%s file=%s FAILED — will retry next pass",
+                        torrent_hash, file_name,
+                    )
+                    all_succeeded = False
+
+            if any_skipped:
+                await _add_tags(session, base, torrent_hash, TAG_REMUX_SKIPPED)
+                _LOGGER.warning("[QBIT] remux pass: hash=%s tagged %r", torrent_hash, TAG_REMUX_SKIPPED)
+            elif all_succeeded:
+                await _add_tags(session, base, torrent_hash, TAG_REMUXED)
+                _LOGGER.warning("[QBIT] remux pass: hash=%s all files remuxed, tagged %r", torrent_hash, TAG_REMUXED)
             else:
                 _LOGGER.warning(
-                    "[QBIT] remux pass: hash=%s file=%s FAILED — will retry next pass",
-                    torrent_hash, file_name,
+                    "[QBIT] remux pass: hash=%s had at least one failure — leaving untagged, will retry next pass",
+                    torrent_hash,
                 )
-                all_succeeded = False
-
-        if any_skipped:
-            await _add_tags(session, base, torrent_hash, TAG_REMUX_SKIPPED)
-            _LOGGER.warning("[QBIT] remux pass: hash=%s tagged %r", torrent_hash, TAG_REMUX_SKIPPED)
-        elif all_succeeded:
-            await _add_tags(session, base, torrent_hash, TAG_REMUXED)
-            _LOGGER.warning("[QBIT] remux pass: hash=%s all files remuxed, tagged %r", torrent_hash, TAG_REMUXED)
-        else:
-            _LOGGER.warning(
-                "[QBIT] remux pass: hash=%s had at least one failure — leaving untagged, will retry next pass",
+        except Exception:
+            _LOGGER.exception(
+                "[QBIT] remux pass: unexpected error processing hash=%s — moving on to next torrent",
                 torrent_hash,
             )
+            continue
 
 
 async def async_setup(

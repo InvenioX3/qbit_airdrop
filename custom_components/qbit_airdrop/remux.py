@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 
@@ -10,6 +11,15 @@ from homeassistant.helpers.storage import Store
 from .const import STORAGE_VERSION, STORAGE_KEY_SSH_KEY_FMT
 
 _LOGGER = logging.getLogger(__name__)
+
+# A hung SSH connect/command would otherwise block indefinitely — and since
+# every remux runs under the same shared poll lock as renaming/cleanup, an
+# unbounded hang here silently wedges the entire integration, not just
+# remuxing. Every network call below is bounded so a stuck operation fails
+# loudly and lets the next poll tick retry instead.
+_CONNECT_TIMEOUT = 30
+_QUICK_CMD_TIMEOUT = 30
+_REMUX_TIMEOUT = 7200  # large 4K remuxes can legitimately take a while
 
 
 async def get_or_create_keypair(hass: HomeAssistant, entry_id: str) -> tuple[str, str]:
@@ -142,13 +152,19 @@ async def remux_file(
             "[QBIT] remux: connecting host=%s port=%s user=%s",
             host, ssh_port, username,
         )
-        async with asyncssh.connect(
-            host, port=ssh_port, username=username,
-            client_keys=[client_key], known_hosts=None,
-        ) as conn:
+        conn = await asyncio.wait_for(
+            asyncssh.connect(
+                host, port=ssh_port, username=username,
+                client_keys=[client_key], known_hosts=None,
+            ),
+            timeout=_CONNECT_TIMEOUT,
+        )
+        async with conn:
             identify_cmd = f'"{mkvmerge_path}" -J "{source_path}"'
             _LOGGER.debug("[QBIT] remux: identify command=%s", identify_cmd)
-            result = await conn.run(identify_cmd, check=False)
+            result = await asyncio.wait_for(
+                conn.run(identify_cmd, check=False), timeout=_QUICK_CMD_TIMEOUT,
+            )
             if result.exit_status != 0:
                 _LOGGER.warning(
                     "[QBIT] remux: identify failed source=%s exit=%s stderr=%s",
@@ -193,7 +209,9 @@ async def remux_file(
                 net_use_cmd = f'net use "{unc_root}" /user:{nas_username} {nas_password}'
                 redacted_cmd = f'net use "{unc_root}" /user:{nas_username} ***'
                 _LOGGER.debug("[QBIT] remux: net use command=%s", redacted_cmd)
-                net_use_result = await conn.run(net_use_cmd, check=False)
+                net_use_result = await asyncio.wait_for(
+                    conn.run(net_use_cmd, check=False), timeout=_QUICK_CMD_TIMEOUT,
+                )
                 _LOGGER.warning(
                     "[QBIT] remux: net use %s exit=%s stdout=%r stderr=%r",
                     unc_root, net_use_result.exit_status, net_use_result.stdout, net_use_result.stderr,
@@ -202,7 +220,9 @@ async def remux_file(
             dest_dir = dest_path.rsplit("\\", 1)[0] if "\\" in dest_path else dest_path
             mkdir_cmd = f'if not exist "{dest_dir}" mkdir "{dest_dir}"'
             _LOGGER.debug("[QBIT] remux: mkdir command=%s", mkdir_cmd)
-            mkdir_result = await conn.run(mkdir_cmd, check=False)
+            mkdir_result = await asyncio.wait_for(
+                conn.run(mkdir_cmd, check=False), timeout=_QUICK_CMD_TIMEOUT,
+            )
             _LOGGER.warning(
                 "[QBIT] remux: mkdir precheck dir=%s exit=%s stdout=%r stderr=%r",
                 dest_dir, mkdir_result.exit_status, mkdir_result.stdout, mkdir_result.stderr,
@@ -210,7 +230,9 @@ async def remux_file(
 
             remux_cmd = build_remux_command(mkvmerge_path, source_path, dest_path, plan)
             _LOGGER.debug("[QBIT] remux: command=%s", remux_cmd)
-            result = await conn.run(remux_cmd, check=False)
+            result = await asyncio.wait_for(
+                conn.run(remux_cmd, check=False), timeout=_REMUX_TIMEOUT,
+            )
             # mkvmerge exit codes: 0 = success, 1 = success with warnings, 2 = error
             if result.exit_status not in (0, 1):
                 _LOGGER.warning(
@@ -221,6 +243,12 @@ async def remux_file(
 
             _LOGGER.debug("[QBIT] remux: wrote %s", dest_path)
             return True, False
+    except asyncio.TimeoutError:
+        _LOGGER.error(
+            "[QBIT] remux: timed out host=%s source=%s — treating as a failure, will retry next pass",
+            host, source_path,
+        )
+        return False, False
     except (OSError, asyncssh.Error):
         _LOGGER.exception("[QBIT] remux: SSH error host=%s source=%s", host, source_path)
         return False, False
