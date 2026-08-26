@@ -68,29 +68,19 @@ def _resolve_temp_ha_path(entry: ConfigEntry) -> str:
     return (data.get(CONF_TEMP_HA_PATH) or "").strip()
 
 
-def _folder_blocking_file(folder_path: str) -> str | None:
-    """Returns the first non-.part filename found anywhere in folder_path's
-    tree, or None if it contains nothing but .part files (or is empty) —
-    i.e. None means safe to remove once the folder is orphaned."""
-    for root, _dirs, files in os.walk(folder_path):
-        for fname in files:
-            if not fname.lower().endswith(".part"):
-                return os.path.join(root, fname)
-    return None
-
-
 def _cleanup_temp_folders_sync(temp_root: str, existing_names: set[str]) -> dict:
     """Blocking filesystem work — must be run via hass.async_add_executor_job.
     Returns diagnostic counts plus the list of folder paths actually removed.
-    A folder is only a removal candidate once no torrent — in any state —
-    still exists with that exact name; as long as qBittorrent still tracks
-    it at all (even just seeding), its folder is left alone."""
+    A folder is a removal candidate once no torrent — in any state — still
+    exists with that exact name; as long as qBittorrent still tracks it at
+    all (even just seeding), its folder is left alone. No further content
+    check beyond that: once a torrent's gone from qBittorrent entirely,
+    whatever's left behind (including leftovers from qBittorrent itself
+    occasionally failing to fully clean up on delete) is removed too."""
     result = {
         "scanned": 0,
         "orphaned": 0,
         "removed": [],
-        "blocked": [],  # (folder_path, blocking_file) — orphaned but still
-                        # had real content in it
     }
 
     try:
@@ -110,11 +100,6 @@ def _cleanup_temp_folders_sync(temp_root: str, existing_names: set[str]) -> dict
             continue  # still tracked by qBittorrent, in any state
 
         result["orphaned"] += 1
-
-        blocking_file = _folder_blocking_file(folder_path)
-        if blocking_file:
-            result["blocked"].append((folder_path, blocking_file))
-            continue
 
         try:
             shutil.rmtree(folder_path)
@@ -309,18 +294,11 @@ async def _cleanup_temp_folders(hass, session, base, temp_ha_path) -> None:
     )
     _LOGGER.warning(
         "[QBIT] temp cleanup: %d folder(s) scanned, %d orphaned (no matching "
-        "torrent left), %d removed, %d blocked by leftover content",
-        result["scanned"], result["orphaned"],
-        len(result["removed"]), len(result["blocked"]),
+        "torrent left), %d removed",
+        result["scanned"], result["orphaned"], len(result["removed"]),
     )
     for path in result["removed"]:
         _LOGGER.debug("[QBIT] temp cleanup removed %s", path)
-    for folder_path, blocking_file in result["blocked"]:
-        _LOGGER.warning(
-            "[QBIT] temp cleanup: %s was orphaned but was not removed — "
-            "blocked by %s",
-            folder_path, blocking_file,
-        )
 
 
 def _find_available_name(base_name: str, existing_names: set[str]) -> str:
