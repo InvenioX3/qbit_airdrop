@@ -51,9 +51,15 @@ def plan_tracks(identify: dict) -> dict:
     """Pure decision logic over mkvmerge -J output.
 
     Keep English-tagged subtitles, strip the rest. Keep only English-tagged
-    audio if any exists, otherwise leave every audio track untouched. Any
-    track (audio or subtitle) with an undefined language skips the file
-    entirely rather than guessing.
+    audio if any exists, otherwise leave every audio track untouched.
+
+    An undefined-language track only triggers a skip when there's no
+    English-tagged track anywhere in the file (audio or subtitle) — that's
+    the only genuinely ambiguous case, where it's unclear whether this is
+    English content with incomplete tags or truly foreign content. Once any
+    track in the file is confirmed English, the file is known to be English
+    content, and any other undefined track is just treated the same as a
+    known non-English one — dropped, no further ambiguity.
 
     Returns {"skip": bool, "audio_keep_ids": list[int] | None, "subtitle_keep_ids": list[int]}.
     audio_keep_ids of None means "keep everything" (the --audio-tracks flag
@@ -63,12 +69,19 @@ def plan_tracks(identify: dict) -> dict:
     audio = [t for t in tracks if t.get("type") == "audio"]
     subtitles = [t for t in tracks if t.get("type") == "subtitles"]
 
-    for t in audio + subtitles:
-        if _is_undefined(_track_lang(t)):
-            return {"skip": True, "audio_keep_ids": None, "subtitle_keep_ids": []}
-
     english_audio_ids = [t["id"] for t in audio if _is_english(_track_lang(t))]
     english_subtitle_ids = [t["id"] for t in subtitles if _is_english(_track_lang(t))]
+
+    if not english_audio_ids and not english_subtitle_ids:
+        # No confirmed English track anywhere. If anything's language is
+        # genuinely unknown, don't guess whether this is English content
+        # with incomplete tags — skip. Otherwise everything is confidently
+        # tagged as some known non-English language: leave audio untouched
+        # (nothing English to prefer) and drop subtitles (no English ones
+        # to keep) — the Korean/Chinese-style case.
+        if any(_is_undefined(_track_lang(t)) for t in audio + subtitles):
+            return {"skip": True, "audio_keep_ids": None, "subtitle_keep_ids": []}
+        return {"skip": False, "audio_keep_ids": None, "subtitle_keep_ids": []}
 
     return {
         "skip": False,
@@ -136,6 +149,20 @@ async def remux_file(
                     source_path,
                 )
                 return False, False
+
+            track_summary = [
+                {
+                    "id": t.get("id"),
+                    "type": t.get("type"),
+                    "language": (t.get("properties") or {}).get("language"),
+                    "language_ietf": (t.get("properties") or {}).get("language_ietf"),
+                }
+                for t in (identify.get("tracks") or [])
+            ]
+            _LOGGER.warning(
+                "[QBIT] remux: tracks for %s: %s",
+                source_path, track_summary,
+            )
 
             plan = plan_tracks(identify)
             if plan["skip"]:
