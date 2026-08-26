@@ -28,6 +28,8 @@ from .const import (
     CONF_MKVMERGE_PATH,
     CONF_NAS_USERNAME,
     CONF_NAS_PASSWORD,
+    CONF_RETAIN_LANGUAGES,
+    DEFAULT_RETAIN_LANGUAGES,
     TAG_REMUXED,
     TAG_REMUX_SKIPPED,
 )
@@ -114,6 +116,11 @@ def _resolve_nas_username(entry: ConfigEntry) -> str:
 def _resolve_nas_password(entry: ConfigEntry) -> str:
     data = entry.options or entry.data or {}
     return data.get(CONF_NAS_PASSWORD) or ""
+
+
+def _resolve_retain_languages(entry: ConfigEntry) -> list[str]:
+    data = entry.options or entry.data or {}
+    return list(data.get(CONF_RETAIN_LANGUAGES) or DEFAULT_RETAIN_LANGUAGES)
 
 
 def _cleanup_temp_folders_sync(temp_root: str, existing_names: set[str]) -> dict:
@@ -735,6 +742,7 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
     movie_path = _resolve_movie_path(entry)
     nas_username = _resolve_nas_username(entry)
     nas_password = _resolve_nas_password(entry)
+    retain_languages = _resolve_retain_languages(entry)
 
     try:
         async with session.get(
@@ -823,7 +831,7 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
 
                 success, skipped = await remux.remux_file(
                     ssh_host, ssh_port, ssh_username, private_key, mkvmerge_path,
-                    source_path, dest_path, nas_username, nas_password,
+                    source_path, dest_path, nas_username, nas_password, retain_languages,
                 )
 
                 if skipped:

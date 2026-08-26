@@ -20,6 +20,9 @@ from .const import (
     CONF_MKVMERGE_PATH,
     CONF_NAS_USERNAME,
     CONF_NAS_PASSWORD,
+    CONF_RETAIN_LANGUAGES,
+    DEFAULT_RETAIN_LANGUAGES,
+    LANGUAGE_CHOICES,
 )
 from .util import base_from_data
 
@@ -40,6 +43,19 @@ def _build_schema(defaults: dict) -> vol.Schema:
         vol.Optional(CONF_NAS_PASSWORD, default=defaults.get(CONF_NAS_PASSWORD, "")): selector.TextSelector(
             selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
         ),
+        vol.Optional(
+            CONF_RETAIN_LANGUAGES,
+            default=defaults.get(CONF_RETAIN_LANGUAGES, DEFAULT_RETAIN_LANGUAGES),
+        ): selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=[
+                    selector.SelectOptionDict(value=c["code"], label=c["label"])
+                    for c in LANGUAGE_CHOICES
+                ],
+                multiple=True,
+                mode=selector.SelectSelectorMode.DROPDOWN,
+            )
+        ),
     })
 
 
@@ -59,6 +75,9 @@ def _normalize_input(user_input: dict) -> dict | None:
     normalized[CONF_MKVMERGE_PATH] = (user_input.get(CONF_MKVMERGE_PATH) or "").strip()
     normalized[CONF_NAS_USERNAME] = (user_input.get(CONF_NAS_USERNAME) or "").strip()
     normalized[CONF_NAS_PASSWORD] = user_input.get(CONF_NAS_PASSWORD) or ""
+    normalized[CONF_RETAIN_LANGUAGES] = list(user_input.get(CONF_RETAIN_LANGUAGES) or []) or list(
+        DEFAULT_RETAIN_LANGUAGES
+    )
     return normalized
 
 

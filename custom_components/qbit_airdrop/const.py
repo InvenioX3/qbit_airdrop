@@ -23,6 +23,47 @@ CONF_MKVMERGE_PATH = "mkvmerge_path"
 CONF_NAS_USERNAME = "nas_username"
 CONF_NAS_PASSWORD = "nas_password"
 
+# Languages to retain audio/subtitle tracks for during remux. Stored as
+# ISO 639-2 codes (matching mkvmerge's own "language" property); each entry
+# below also carries its ISO 639-1 (two-letter) equivalent since mkvmerge's
+# newer "language_ietf" property reports that form instead — track matching
+# checks a file's reported language against both forms for every selected
+# entry, not just the three-letter one actually stored in config.
+CONF_RETAIN_LANGUAGES = "retain_languages"
+DEFAULT_RETAIN_LANGUAGES = ["eng"]
+
+LANGUAGE_CHOICES = [
+    {"code": "eng", "code2": "en", "label": "English"},
+    {"code": "spa", "code2": "es", "label": "Spanish"},
+    {"code": "fre", "code2": "fr", "label": "French"},
+    {"code": "ger", "code2": "de", "label": "German"},
+    {"code": "ita", "code2": "it", "label": "Italian"},
+    {"code": "por", "code2": "pt", "label": "Portuguese"},
+    {"code": "rus", "code2": "ru", "label": "Russian"},
+    {"code": "jpn", "code2": "ja", "label": "Japanese"},
+    {"code": "kor", "code2": "ko", "label": "Korean"},
+    {"code": "chi", "code2": "zh", "label": "Chinese"},
+    {"code": "ara", "code2": "ar", "label": "Arabic"},
+    {"code": "hin", "code2": "hi", "label": "Hindi"},
+    {"code": "dut", "code2": "nl", "label": "Dutch"},
+    {"code": "swe", "code2": "sv", "label": "Swedish"},
+    {"code": "nor", "code2": "no", "label": "Norwegian"},
+    {"code": "dan", "code2": "da", "label": "Danish"},
+    {"code": "fin", "code2": "fi", "label": "Finnish"},
+    {"code": "pol", "code2": "pl", "label": "Polish"},
+    {"code": "tur", "code2": "tr", "label": "Turkish"},
+    {"code": "gre", "code2": "el", "label": "Greek"},
+    {"code": "heb", "code2": "he", "label": "Hebrew"},
+    {"code": "tha", "code2": "th", "label": "Thai"},
+    {"code": "vie", "code2": "vi", "label": "Vietnamese"},
+    {"code": "ukr", "code2": "uk", "label": "Ukrainian"},
+    {"code": "cze", "code2": "cs", "label": "Czech"},
+    {"code": "hun", "code2": "hu", "label": "Hungarian"},
+    {"code": "rum", "code2": "ro", "label": "Romanian"},
+    {"code": "ind", "code2": "id", "label": "Indonesian"},
+    {"code": "may", "code2": "ms", "label": "Malay"},
+]
+
 # qBittorrent tags used to mark remux outcome
 TAG_REMUXED = "Remuxed"
 TAG_REMUX_SKIPPED = "Remux skipped - language undefined"

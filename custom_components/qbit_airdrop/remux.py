@@ -8,9 +8,22 @@ import asyncssh
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
-from .const import STORAGE_VERSION, STORAGE_KEY_SSH_KEY_FMT
+from .const import STORAGE_VERSION, STORAGE_KEY_SSH_KEY_FMT, LANGUAGE_CHOICES, DEFAULT_RETAIN_LANGUAGES
 
 _LOGGER = logging.getLogger(__name__)
+
+# Each configured language (stored as its ISO 639-2 code) also needs to match
+# mkvmerge's newer "language_ietf" property, which reports the ISO 639-1
+# (two-letter) form instead — expand every selected code to both forms once,
+# so track matching is a simple set-containment check.
+_CODE_EXPANSIONS = {c["code"]: {c["code"], c["code2"]} for c in LANGUAGE_CHOICES}
+
+
+def _expand_retain_codes(retain_codes: list[str]) -> set[str]:
+    expanded: set[str] = set()
+    for code in retain_codes or DEFAULT_RETAIN_LANGUAGES:
+        expanded |= _CODE_EXPANSIONS.get(code, {code})
+    return expanded
 
 # A hung SSH connect/command would otherwise block indefinitely — and since
 # every remux runs under the same shared poll lock as renaming/cleanup, an
@@ -49,54 +62,54 @@ def _track_lang(track: dict) -> str | None:
     return lang or None
 
 
-def _is_english(lang: str | None) -> bool:
-    return lang in ("en", "eng")
-
-
 def _is_undefined(lang: str | None) -> bool:
     return lang is None or lang in ("und", "")
 
 
-def plan_tracks(identify: dict) -> dict:
+def plan_tracks(identify: dict, retain_codes: list[str] | None = None) -> dict:
     """Pure decision logic over mkvmerge -J output.
 
-    Keep English-tagged subtitles, strip the rest. Keep only English-tagged
-    audio if any exists, otherwise leave every audio track untouched.
+    Keep subtitles tagged with any of the configured languages, strip the
+    rest. Keep only audio tracks tagged with a configured language if any
+    exist, otherwise leave every audio track untouched.
 
     An undefined-language track only triggers a skip when there's no
-    English-tagged track anywhere in the file (audio or subtitle) — that's
-    the only genuinely ambiguous case, where it's unclear whether this is
-    English content with incomplete tags or truly foreign content. Once any
-    track in the file is confirmed English, the file is known to be English
-    content, and any other undefined track is just treated the same as a
-    known non-English one — dropped, no further ambiguity.
+    configured-language track anywhere in the file (audio or subtitle) —
+    that's the only genuinely ambiguous case, where it's unclear whether
+    this is content in a language you want with incomplete tags, or truly
+    something else. Once any track in the file matches a configured
+    language, the file is known to be relevant content, and any other
+    undefined track is just treated the same as a known non-matching one —
+    dropped, no further ambiguity.
 
     Returns {"skip": bool, "audio_keep_ids": list[int] | None, "subtitle_keep_ids": list[int]}.
     audio_keep_ids of None means "keep everything" (the --audio-tracks flag
     is omitted rather than passed).
     """
+    retained = _expand_retain_codes(retain_codes or DEFAULT_RETAIN_LANGUAGES)
+
     tracks = identify.get("tracks") or []
     audio = [t for t in tracks if t.get("type") == "audio"]
     subtitles = [t for t in tracks if t.get("type") == "subtitles"]
 
-    english_audio_ids = [t["id"] for t in audio if _is_english(_track_lang(t))]
-    english_subtitle_ids = [t["id"] for t in subtitles if _is_english(_track_lang(t))]
+    retained_audio_ids = [t["id"] for t in audio if _track_lang(t) in retained]
+    retained_subtitle_ids = [t["id"] for t in subtitles if _track_lang(t) in retained]
 
-    if not english_audio_ids and not english_subtitle_ids:
-        # No confirmed English track anywhere. If anything's language is
-        # genuinely unknown, don't guess whether this is English content
-        # with incomplete tags — skip. Otherwise everything is confidently
-        # tagged as some known non-English language: leave audio untouched
-        # (nothing English to prefer) and drop subtitles (no English ones
-        # to keep) — the Korean/Chinese-style case.
+    if not retained_audio_ids and not retained_subtitle_ids:
+        # No confirmed configured-language track anywhere. If anything's
+        # language is genuinely unknown, don't guess — skip. Otherwise
+        # everything is confidently tagged as some other known language:
+        # leave audio untouched (nothing configured to prefer) and drop
+        # subtitles (no configured-language ones to keep) — the
+        # Korean/Chinese-style case.
         if any(_is_undefined(_track_lang(t)) for t in audio + subtitles):
             return {"skip": True, "audio_keep_ids": None, "subtitle_keep_ids": []}
         return {"skip": False, "audio_keep_ids": None, "subtitle_keep_ids": []}
 
     return {
         "skip": False,
-        "audio_keep_ids": english_audio_ids or None,
-        "subtitle_keep_ids": english_subtitle_ids,
+        "audio_keep_ids": retained_audio_ids or None,
+        "subtitle_keep_ids": retained_subtitle_ids,
     }
 
 
@@ -131,6 +144,7 @@ async def remux_file(
     dest_path: str,
     nas_username: str = "",
     nas_password: str = "",
+    retain_languages: list[str] | None = None,
 ) -> tuple[bool, bool]:
     """Runs entirely on the remote Windows host over SSH — identify, decide,
     then remux straight to dest_path. Returns (success, skipped).
@@ -195,7 +209,7 @@ async def remux_file(
                 source_path, track_summary,
             )
 
-            plan = plan_tracks(identify)
+            plan = plan_tracks(identify, retain_languages)
             if plan["skip"]:
                 _LOGGER.warning(
                     "[QBIT] remux: undefined-language track present, skipping source=%s",

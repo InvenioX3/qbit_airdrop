@@ -16,7 +16,8 @@
           "ssh_username": "Mkvmerge host SSH username:",
           "mkvmerge_path": "Path to mkvmerge.exe on that host:",
           "nas_username": "NAS username (remux destination):",
-          "nas_password": "NAS password (remux destination):"
+          "nas_password": "NAS password (remux destination):",
+          "retain_languages": "Languages to keep (audio/subtitles):"
         }
       }
     },
@@ -41,7 +42,8 @@
           "ssh_username": "Mkvmerge host SSH username:",
           "mkvmerge_path": "Path to mkvmerge.exe on that host:",
           "nas_username": "NAS username (remux destination):",
-          "nas_password": "NAS password (remux destination):"
+          "nas_password": "NAS password (remux destination):",
+          "retain_languages": "Languages to keep (audio/subtitles):"
         }
       }
     },
