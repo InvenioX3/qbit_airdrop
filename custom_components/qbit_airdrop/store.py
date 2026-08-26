@@ -17,11 +17,16 @@ from .const import STORAGE_VERSION, STORAGE_KEY_TORRENTS_FMT
 #   "token_type": str,      # se/s/season/complete/year/blank
 #   "season": str,
 #   "rename_name": str,
-#   "dest_path": str,       # resolved once renamed; "" until then
 #   "stage": "pending" | "awaiting_remux",
 #   "added_at": datetime,
 #   "last_checked_at": datetime | None,
 # }
+#
+# The remux destination is intentionally NOT precomputed/stored here —
+# setLocation already places each torrent at Qbittorrent default save
+# path\category[\season] (or \<movie name> for movies), so the remux pass
+# derives both source and destination fresh from qBittorrent's own live
+# state plus category/token_type/season at the time it actually runs.
 
 
 class TorrentStore:

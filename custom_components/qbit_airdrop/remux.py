@@ -110,11 +110,16 @@ async def remux_file(
     need adjusting."""
     try:
         client_key = asyncssh.import_private_key(private_key_pem)
+        _LOGGER.debug(
+            "[QBIT] remux: connecting host=%s port=%s user=%s",
+            host, ssh_port, username,
+        )
         async with asyncssh.connect(
             host, port=ssh_port, username=username,
             client_keys=[client_key], known_hosts=None,
         ) as conn:
             identify_cmd = f'"{mkvmerge_path}" -J "{source_path}"'
+            _LOGGER.debug("[QBIT] remux: identify command=%s", identify_cmd)
             result = await conn.run(identify_cmd, check=False)
             if result.exit_status != 0:
                 _LOGGER.warning(
@@ -141,9 +146,17 @@ async def remux_file(
                 return False, True
 
             dest_dir = dest_path.rsplit("\\", 1)[0] if "\\" in dest_path else dest_path
-            await conn.run(f'if not exist "{dest_dir}" mkdir "{dest_dir}"', check=False)
+            mkdir_cmd = f'if not exist "{dest_dir}" mkdir "{dest_dir}"'
+            _LOGGER.debug("[QBIT] remux: mkdir command=%s", mkdir_cmd)
+            mkdir_result = await conn.run(mkdir_cmd, check=False)
+            if mkdir_result.exit_status != 0:
+                _LOGGER.debug(
+                    "[QBIT] remux: mkdir precheck exit=%s stderr=%s (often just 'already exists', non-fatal)",
+                    mkdir_result.exit_status, mkdir_result.stderr,
+                )
 
             remux_cmd = build_remux_command(mkvmerge_path, source_path, dest_path, plan)
+            _LOGGER.debug("[QBIT] remux: command=%s", remux_cmd)
             result = await conn.run(remux_cmd, check=False)
             # mkvmerge exit codes: 0 = success, 1 = success with warnings, 2 = error
             if result.exit_status not in (0, 1):

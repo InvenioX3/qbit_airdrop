@@ -268,6 +268,7 @@ async def _fetch_index(session, base, torrent_hash: str) -> dict | None:
             "id": entry.get("index"),
             "path": path,
             "size": entry.get("size"),
+            "priority": entry.get("priority"),
         })
 
         parts = path.split("/")[:-1]
@@ -437,6 +438,17 @@ async def _rename_file(session, base, torrent_hash, old_path, new_path) -> bool:
     )
 
 
+async def _set_location(session, base, torrent_hash, location) -> bool:
+    if not location:
+        return True
+
+    return await _qbit_command(
+        session, base, "setLocation",
+        {"hashes": torrent_hash, "location": location},
+        timeout=30,
+    )
+
+
 async def _add_tags(session, base, torrent_hash, tags: str) -> bool:
     return await _qbit_command(
         session, base, "addTags",
@@ -496,14 +508,16 @@ async def _rename_single_file_target(
 
 
 async def _process_queue_item(
-    session, base, base_path, movie_path, torrent_hash, meta, index, torrents,
-) -> tuple[bool, str]:
-    """Renames per the existing classification pipeline. No location-changing
-    API call is made here (Goal 2) — instead the destination this torrent
-    would have moved to is computed and returned, for the caller to hand off
-    to the remux stage. Returns (done, dest_path); dest_path is "" when
-    either the token type is unrecognized or no destination path is
-    configured for that content type — in both cases there is nothing for a
+    session, base, download_path, torrent_hash, meta, index, torrents,
+) -> tuple[bool, bool]:
+    """Renames per the existing classification pipeline, then relocates via
+    setLocation exactly as it always has — rooted at Qbittorrent default
+    save path rather than a category-derived path, since qBittorrent's own
+    category field is never set (Goal 1). This is NOT the final Movies/TV
+    Shows destination — it's where qBittorrent settles permanently once
+    metadata resolves; the remux pass reads from there and writes the true
+    final output separately. Returns (done, needs_remux); needs_remux is
+    False only for an unrecognized token type, where there's nothing for a
     later remux pass to do."""
     token_type = meta["token_type"]
     category = meta["category"]
@@ -525,7 +539,6 @@ async def _process_queue_item(
     )
 
     ok = True
-    dest_path = ""
 
     if not category:
         # Movie (token_type "year", or unclassified — no season signal at all).
@@ -538,8 +551,10 @@ async def _process_queue_item(
             session, base, torrent_hash, files, largest, root_folder,
             target_name, target_name, force_keep_all=is_bluray,
         )
-        if movie_path:
-            dest_path = _build_location(movie_path)
+        if download_path:
+            ok &= await _set_location(
+                session, base, torrent_hash, _build_location(download_path, target_name),
+            )
 
     elif token_type == "se":
         # Same show + same season always merges into one shared season
@@ -552,11 +567,12 @@ async def _process_queue_item(
             session, base, torrent_hash, files, largest, root_folder,
             season, target_name, force_keep_all=is_bluray,
         )
-        if base_path:
-            dest_path = (
-                _build_location(base_path, category)
-                if root_folder else _build_location(base_path, category, season)
+        if download_path:
+            location = (
+                _build_location(download_path, category)
+                if root_folder else _build_location(download_path, category, season)
             )
+            ok &= await _set_location(session, base, torrent_hash, location)
 
     elif token_type in ("s", "season"):
         # Same show + same season always merges into one shared season
@@ -593,8 +609,8 @@ async def _process_queue_item(
             ok &= await _rename_folder(session, base, torrent_hash, root_folder, season)
 
         ok &= await _apply_file_priorities(session, base, torrent_hash, files, keep_ids)
-        if base_path:
-            dest_path = _build_location(base_path, category)
+        if download_path:
+            ok &= await _set_location(session, base, torrent_hash, _build_location(download_path, category))
 
     elif token_type == "complete":
         # Same per-file dedup as "s"/"season" — root folder merging into the
@@ -645,25 +661,46 @@ async def _process_queue_item(
         ok &= await _apply_file_priorities(session, base, torrent_hash, files, keep_ids)
 
         # Root folder was just renamed to `category` itself — the resolved
-        # destination only needs base_path, or it'd end up base_path/category/category/...
-        if base_path:
-            dest_path = (
-                _build_location(base_path)
-                if root_folder else _build_location(base_path, category)
+        # location only needs download_path, or it'd end up download_path/category/category/...
+        if download_path:
+            location = (
+                _build_location(download_path)
+                if root_folder else _build_location(download_path, category)
             )
+            ok &= await _set_location(session, base, torrent_hash, location)
 
     else:
         _LOGGER.warning(
             "[QBIT] unrecognized token_type=%s hash=%s — skipping rename pipeline",
             token_type, torrent_hash,
         )
-        return True, ""
+        return True, False
 
     ok &= await _start_torrent(session, base, torrent_hash)
-    return ok, (dest_path if ok else "")
+    return ok, True
 
 
 _COMPLETE_STATE_SUFFIX = "up"
+
+
+def _remux_dest_dir(tv_shows_path, movie_path, category, token_type, season, file_rel_path) -> str:
+    """Where a given (already-relocated-by-setLocation) file's remuxed
+    output should land. TV nests under category[\\season]; "complete" packs
+    detect the season from the file's own current parent folder, since
+    multi-season torrents nest episodes under normalized season-code
+    subfolders rather than a single fixed season."""
+    if not category:
+        return movie_path
+
+    if token_type == "complete":
+        parent_leaf = file_rel_path.rsplit("/", 1)[0].rsplit("/", 1)[-1] if "/" in file_rel_path else ""
+        season_seg = _detect_season(parent_leaf)
+        return (
+            _build_location(tv_shows_path, category, season_seg)
+            if season_seg else _build_location(tv_shows_path, category)
+        )
+
+    return _build_location(tv_shows_path, category, season)
 
 
 async def _run_remux_pass(hass, entry, session, base, store) -> None:
@@ -675,7 +712,15 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
     ssh_username = _resolve_ssh_username(entry)
     mkvmerge_path = _resolve_mkvmerge_path(entry)
     if not (ssh_host and ssh_username and mkvmerge_path):
+        _LOGGER.debug(
+            "[QBIT] remux pass: SSH not fully configured (host=%r user=%r mkvmerge=%r) — "
+            "%d torrent(s) waiting",
+            ssh_host, ssh_username, mkvmerge_path, len(pending_remux),
+        )
         return
+
+    tv_shows_path = _resolve_base_path(entry)
+    movie_path = _resolve_movie_path(entry)
 
     try:
         async with session.get(
@@ -684,6 +729,7 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
             timeout=10,
         ) as resp:
             if resp.status != 200:
+                _LOGGER.warning("[QBIT] remux pass: torrent list fetch status=%s", resp.status)
                 return
             live = await resp.json(content_type=None)
     except Exception:
@@ -697,54 +743,101 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
     ssh_port = _resolve_ssh_port(entry)
     private_key, _public_key = await remux.get_or_create_keypair(hass, entry.entry_id)
 
+    _LOGGER.debug("[QBIT] remux pass: %d torrent(s) currently awaiting remux", len(pending_remux))
+
     for torrent_hash, rec in pending_remux.items():
         t = live_by_hash.get(torrent_hash)
         if not t:
+            _LOGGER.debug("[QBIT] remux pass: hash=%s no longer in qBittorrent, skipping", torrent_hash)
             continue
 
         state = str(t.get("state") or "").lower()
         if not state.endswith(_COMPLETE_STATE_SUFFIX):
+            _LOGGER.debug("[QBIT] remux pass: hash=%s not complete yet (state=%s)", torrent_hash, state)
             continue
 
         tag_set = {tg.strip() for tg in str(t.get("tags") or "").split(",") if tg.strip()}
         if TAG_REMUXED in tag_set or TAG_REMUX_SKIPPED in tag_set:
             continue
 
-        dest_dir = rec.get("dest_path") or ""
-        if not dest_dir:
+        category = rec.get("category") or ""
+        token_type = rec.get("token_type") or ""
+        season = rec.get("season") or ""
+
+        if not category and not movie_path:
+            _LOGGER.debug("[QBIT] remux pass: hash=%s is a movie but Movies save path isn't configured", torrent_hash)
+            continue
+        if category and not tv_shows_path:
+            _LOGGER.debug("[QBIT] remux pass: hash=%s is TV but TV Shows save path isn't configured", torrent_hash)
             continue
 
         index = await _fetch_index(session, base, torrent_hash)
         if not index:
+            _LOGGER.debug("[QBIT] remux pass: hash=%s file index fetch failed", torrent_hash)
             continue
-        videos = [f for f in index["files"] if _is_video(f["path"])]
-        if not videos:
-            continue
-        largest = max(videos, key=lambda f: f["size"])
 
         save_path = str(t.get("save_path") or "").rstrip("\\/")
-        source_path = f"{save_path}\\{largest['path'].replace('/', chr(92))}"
-        file_name = os.path.basename(largest["path"])
-        dest_path = f"{dest_dir.rstrip(chr(92))}\\{file_name}"
+        videos = [
+            f for f in index["files"]
+            if _is_video(f["path"]) and f.get("priority") != 0
+        ]
+        if not videos:
+            _LOGGER.debug("[QBIT] remux pass: hash=%s no eligible (kept) video files found", torrent_hash)
+            continue
 
-        _LOGGER.debug(
-            "[QBIT] remux pass: attempting hash=%s source=%s dest=%s",
-            torrent_hash, source_path, dest_path,
+        _LOGGER.warning(
+            "[QBIT] remux pass: starting hash=%s category=%r token_type=%r files=%d save_path=%s",
+            torrent_hash, category, token_type, len(videos), save_path,
         )
 
-        success, skipped = await remux.remux_file(
-            ssh_host, ssh_port, ssh_username, private_key, mkvmerge_path,
-            source_path, dest_path,
-        )
+        all_succeeded = True
+        any_skipped = False
 
-        if skipped:
+        for f in videos:
+            file_name = os.path.basename(f["path"])
+            source_path = f"{save_path}\\{f['path'].replace('/', chr(92))}"
+            dest_dir = _remux_dest_dir(tv_shows_path, movie_path, category, token_type, season, f["path"])
+            dest_path = f"{dest_dir.rstrip(chr(92))}\\{file_name}"
+
+            _LOGGER.warning(
+                "[QBIT] remux pass: hash=%s attempting file=%s source=%s dest=%s",
+                torrent_hash, file_name, source_path, dest_path,
+            )
+
+            success, skipped = await remux.remux_file(
+                ssh_host, ssh_port, ssh_username, private_key, mkvmerge_path,
+                source_path, dest_path,
+            )
+
+            if skipped:
+                _LOGGER.warning(
+                    "[QBIT] remux pass: hash=%s file=%s SKIPPED — undefined-language track present",
+                    torrent_hash, file_name,
+                )
+                any_skipped = True
+            elif success:
+                _LOGGER.warning(
+                    "[QBIT] remux pass: hash=%s file=%s SUCCEEDED -> %s",
+                    torrent_hash, file_name, dest_path,
+                )
+            else:
+                _LOGGER.warning(
+                    "[QBIT] remux pass: hash=%s file=%s FAILED — will retry next pass",
+                    torrent_hash, file_name,
+                )
+                all_succeeded = False
+
+        if any_skipped:
             await _add_tags(session, base, torrent_hash, TAG_REMUX_SKIPPED)
-            _LOGGER.warning("[QBIT] remux skipped (undefined language) hash=%s", torrent_hash)
-        elif success:
+            _LOGGER.warning("[QBIT] remux pass: hash=%s tagged %r", torrent_hash, TAG_REMUX_SKIPPED)
+        elif all_succeeded:
             await _add_tags(session, base, torrent_hash, TAG_REMUXED)
-            _LOGGER.debug("[QBIT] remux succeeded hash=%s", torrent_hash)
+            _LOGGER.warning("[QBIT] remux pass: hash=%s all files remuxed, tagged %r", torrent_hash, TAG_REMUXED)
         else:
-            _LOGGER.warning("[QBIT] remux failed hash=%s — will retry next pass", torrent_hash)
+            _LOGGER.warning(
+                "[QBIT] remux pass: hash=%s had at least one failure — leaving untagged, will retry next pass",
+                torrent_hash,
+            )
 
 
 async def async_setup(
@@ -904,7 +997,6 @@ async def async_setup_entry(
             "rename_name": (data.get("rename_name") or "").strip(),
             "token_type": (data.get("token_type") or "").strip(),
             "season": (data.get("season") or "").strip(),
-            "dest_path": "",
             "stage": "pending",
             "added_at": dt_util.utcnow(),
             "last_checked_at": None,
@@ -969,8 +1061,7 @@ async def async_setup_entry(
         if not base:
             return
 
-        base_path = _resolve_base_path(entry)
-        movie_path = _resolve_movie_path(entry)
+        download_path = _resolve_download_path(entry)
 
         pending = {h: rec for h, rec in store.torrents.items() if rec.get("stage") == "pending"}
         changed = False
@@ -987,8 +1078,8 @@ async def async_setup_entry(
                 continue
 
             try:
-                done, dest_path = await _process_queue_item(
-                    session, base, base_path, movie_path, torrent_hash, meta, index,
+                done, needs_remux = await _process_queue_item(
+                    session, base, download_path, torrent_hash, meta, index,
                     store.torrents,
                 )
             except Exception:
@@ -999,9 +1090,8 @@ async def async_setup_entry(
                 continue
 
             if done:
-                if dest_path:
+                if needs_remux:
                     meta["stage"] = "awaiting_remux"
-                    meta["dest_path"] = dest_path
                 else:
                     store.torrents.pop(torrent_hash, None)
             else:
