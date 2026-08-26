@@ -692,7 +692,7 @@ async def _process_queue_item(
     return ok, True
 
 
-_COMPLETE_STATE_SUFFIX = "up"
+_COMPLETE_STATES = {"uploading", "stalledup", "forcedup", "pausedup", "queuedup", "checkingup"}
 
 
 def _remux_dest_dir(tv_shows_path, movie_path, category, token_type, season, file_rel_path) -> str:
@@ -766,7 +766,7 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
             continue
 
         state = str(t.get("state") or "").lower()
-        if not state.endswith(_COMPLETE_STATE_SUFFIX):
+        if state not in _COMPLETE_STATES:
             _LOGGER.warning("[QBIT] remux pass: hash=%s not complete yet (state=%s)", torrent_hash, state)
             continue
 
