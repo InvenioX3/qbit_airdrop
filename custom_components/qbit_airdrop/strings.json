@@ -15,6 +15,7 @@
           "ssh_port": "Mkvmerge host SSH port:",
           "ssh_username": "Mkvmerge host SSH username:",
           "mkvmerge_path": "Path to mkvmerge.exe on that host:",
+          "mkvmerge_host_os": "Mkvmerge/qBittorrent host OS:",
           "nas_username": "NAS username (remux destination):",
           "nas_password": "NAS password (remux destination):",
           "retain_languages": "Languages to keep (audio/subtitles):"
@@ -41,6 +42,7 @@
           "ssh_port": "Mkvmerge host SSH port:",
           "ssh_username": "Mkvmerge host SSH username:",
           "mkvmerge_path": "Path to mkvmerge.exe on that host:",
+          "mkvmerge_host_os": "Mkvmerge/qBittorrent host OS:",
           "nas_username": "NAS username (remux destination):",
           "nas_password": "NAS password (remux destination):",
           "retain_languages": "Languages to keep (audio/subtitles):"

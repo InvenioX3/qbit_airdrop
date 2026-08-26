@@ -30,6 +30,8 @@ from .const import (
     CONF_NAS_PASSWORD,
     CONF_RETAIN_LANGUAGES,
     DEFAULT_RETAIN_LANGUAGES,
+    CONF_MKVMERGE_HOST_OS,
+    DEFAULT_MKVMERGE_HOST_OS,
     TAG_REMUXED,
     TAG_REMUX_SKIPPED,
 )
@@ -121,6 +123,11 @@ def _resolve_nas_password(entry: ConfigEntry) -> str:
 def _resolve_retain_languages(entry: ConfigEntry) -> list[str]:
     data = entry.options or entry.data or {}
     return list(data.get(CONF_RETAIN_LANGUAGES) or DEFAULT_RETAIN_LANGUAGES)
+
+
+def _resolve_is_windows(entry: ConfigEntry) -> bool:
+    data = entry.options or entry.data or {}
+    return (data.get(CONF_MKVMERGE_HOST_OS) or DEFAULT_MKVMERGE_HOST_OS) == "windows"
 
 
 def _cleanup_temp_folders_sync(temp_root: str, existing_names: set[str]) -> dict:
@@ -252,10 +259,12 @@ def _sibling_path(path: str, new_name: str) -> str:
     return new_name
 
 
-def _build_location(base_path: str, *parts: str) -> str:
-    normalized = base_path.strip().replace("/", "\\").rstrip("\\")
+def _build_location(base_path: str, *parts: str, is_windows: bool = True) -> str:
+    sep = "\\" if is_windows else "/"
+    other = "/" if is_windows else "\\"
+    normalized = base_path.strip().replace(other, sep).rstrip(sep)
     segments = [normalized] + [p.strip("\\/ ") for p in parts if p]
-    return "\\".join(segments) + "\\"
+    return sep.join(segments) + sep
 
 
 async def _fetch_index(session, base, torrent_hash: str) -> dict | None:
@@ -527,7 +536,7 @@ async def _rename_single_file_target(
 
 
 async def _process_queue_item(
-    session, base, download_path, torrent_hash, meta, index, torrents,
+    session, base, download_path, torrent_hash, meta, index, torrents, is_windows,
 ) -> tuple[bool, bool]:
     """Renames per the existing classification pipeline, then relocates via
     setLocation exactly as it always has — rooted at Qbittorrent default
@@ -572,7 +581,8 @@ async def _process_queue_item(
         )
         if download_path:
             ok &= await _set_location(
-                session, base, torrent_hash, _build_location(download_path, target_name),
+                session, base, torrent_hash,
+                _build_location(download_path, target_name, is_windows=is_windows),
             )
 
     elif token_type == "se":
@@ -588,8 +598,8 @@ async def _process_queue_item(
         )
         if download_path:
             location = (
-                _build_location(download_path, category)
-                if root_folder else _build_location(download_path, category, season)
+                _build_location(download_path, category, is_windows=is_windows)
+                if root_folder else _build_location(download_path, category, season, is_windows=is_windows)
             )
             ok &= await _set_location(session, base, torrent_hash, location)
 
@@ -629,7 +639,10 @@ async def _process_queue_item(
 
         ok &= await _apply_file_priorities(session, base, torrent_hash, files, keep_ids)
         if download_path:
-            ok &= await _set_location(session, base, torrent_hash, _build_location(download_path, category))
+            ok &= await _set_location(
+                session, base, torrent_hash,
+                _build_location(download_path, category, is_windows=is_windows),
+            )
 
     elif token_type == "complete":
         # Same per-file dedup as "s"/"season" — root folder merging into the
@@ -683,8 +696,8 @@ async def _process_queue_item(
         # location only needs download_path, or it'd end up download_path/category/category/...
         if download_path:
             location = (
-                _build_location(download_path)
-                if root_folder else _build_location(download_path, category)
+                _build_location(download_path, is_windows=is_windows)
+                if root_folder else _build_location(download_path, category, is_windows=is_windows)
             )
             ok &= await _set_location(session, base, torrent_hash, location)
 
@@ -702,12 +715,17 @@ async def _process_queue_item(
 _COMPLETE_STATES = {"uploading", "stalledup", "forcedup", "pausedup", "queuedup", "checkingup"}
 
 
-def _remux_dest_dir(tv_shows_path, movie_path, category, token_type, season, file_rel_path) -> str:
+def _remux_dest_dir(tv_shows_path, movie_path, category, token_type, season, file_rel_path, is_windows) -> str:
     """Where a given (already-relocated-by-setLocation) file's remuxed
     output should land. TV nests under category[\\season]; "complete" packs
     detect the season from the file's own current parent folder, since
     multi-season torrents nest episodes under normalized season-code
-    subfolders rather than a single fixed season."""
+    subfolders rather than a single fixed season.
+
+    file_rel_path is qBittorrent's own torrent-internal relative path, which
+    is always forward-slash regardless of host OS (BitTorrent's own
+    convention, not a filesystem path) — only the _build_location calls
+    below touch a real host path and need is_windows."""
     if not category:
         return movie_path
 
@@ -715,11 +733,11 @@ def _remux_dest_dir(tv_shows_path, movie_path, category, token_type, season, fil
         parent_leaf = file_rel_path.rsplit("/", 1)[0].rsplit("/", 1)[-1] if "/" in file_rel_path else ""
         season_seg = _detect_season(parent_leaf)
         return (
-            _build_location(tv_shows_path, category, season_seg)
-            if season_seg else _build_location(tv_shows_path, category)
+            _build_location(tv_shows_path, category, season_seg, is_windows=is_windows)
+            if season_seg else _build_location(tv_shows_path, category, is_windows=is_windows)
         )
 
-    return _build_location(tv_shows_path, category, season)
+    return _build_location(tv_shows_path, category, season, is_windows=is_windows)
 
 
 async def _run_remux_pass(hass, entry, session, base, store) -> None:
@@ -743,6 +761,8 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
     nas_username = _resolve_nas_username(entry)
     nas_password = _resolve_nas_password(entry)
     retain_languages = _resolve_retain_languages(entry)
+    is_windows = _resolve_is_windows(entry)
+    sep = "\\" if is_windows else "/"
 
     try:
         async with session.get(
@@ -820,9 +840,11 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
 
             for f in videos:
                 file_name = os.path.basename(f["path"])
-                source_path = f"{save_path}\\{f['path'].replace('/', chr(92))}"
-                dest_dir = _remux_dest_dir(tv_shows_path, movie_path, category, token_type, season, f["path"])
-                dest_path = f"{dest_dir.rstrip(chr(92))}\\{file_name}"
+                source_path = f"{save_path}{sep}{f['path'].replace('/', sep)}"
+                dest_dir = _remux_dest_dir(
+                    tv_shows_path, movie_path, category, token_type, season, f["path"], is_windows,
+                )
+                dest_path = f"{dest_dir.rstrip(sep)}{sep}{file_name}"
 
                 _LOGGER.warning(
                     "[QBIT] remux pass: hash=%s attempting file=%s source=%s dest=%s",
@@ -832,6 +854,7 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
                 success, skipped = await remux.remux_file(
                     ssh_host, ssh_port, ssh_username, private_key, mkvmerge_path,
                     source_path, dest_path, nas_username, nas_password, retain_languages,
+                    is_windows,
                 )
 
                 if skipped:
@@ -974,7 +997,9 @@ async def async_setup_entry(
         if download_path_base:
             unique_name = _magnet_display_name(magnet) or _extract_hash(magnet)
             if unique_name:
-                form["downloadPath"] = _build_location(download_path_base, unique_name)
+                form["downloadPath"] = _build_location(
+                    download_path_base, unique_name, is_windows=_resolve_is_windows(entry),
+                )
                 form["useDownloadPath"] = "true"
 
         async with session.post(
@@ -1093,6 +1118,7 @@ async def async_setup_entry(
             return
 
         download_path = _resolve_download_path(entry)
+        is_windows = _resolve_is_windows(entry)
 
         pending = {h: rec for h, rec in store.torrents.items() if rec.get("stage") == "pending"}
         changed = False
@@ -1111,7 +1137,7 @@ async def async_setup_entry(
             try:
                 done, needs_remux = await _process_queue_item(
                     session, base, download_path, torrent_hash, meta, index,
-                    store.torrents,
+                    store.torrents, is_windows,
                 )
             except Exception:
                 _LOGGER.exception(

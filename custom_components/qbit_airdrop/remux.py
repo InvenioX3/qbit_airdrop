@@ -145,21 +145,25 @@ async def remux_file(
     nas_username: str = "",
     nas_password: str = "",
     retain_languages: list[str] | None = None,
+    is_windows: bool = True,
 ) -> tuple[bool, bool]:
-    """Runs entirely on the remote Windows host over SSH — identify, decide,
-    then remux straight to dest_path. Returns (success, skipped).
+    """Runs entirely on the remote host over SSH — identify, decide, then
+    remux straight to dest_path. Returns (success, skipped).
 
-    Assumes the SSH server's default shell is cmd.exe (Windows OpenSSH
-    Server's own default) for the mkdir precheck; if that host has been
-    reconfigured to a different DefaultShell, the mkdir command below will
-    need adjusting.
+    On Windows, assumes the SSH server's default shell is cmd.exe (Windows
+    OpenSSH Server's own default) for the mkdir precheck; if that host has
+    been reconfigured to a different DefaultShell, that command will need
+    adjusting.
 
     SSH sessions on Windows are network logons and can't use Windows
     Credential Manager (cmdkey), so if the destination is a UNC path and
     NAS credentials are configured, authenticate to that server explicitly
     via `net use \\host\\IPC$` before writing — this works from a network
     logon since the password is passed inline rather than relying on any
-    cached/persisted credential."""
+    cached/persisted credential. This whole step is Windows-specific and
+    skipped entirely on Linux, where network-share access is a mount-level
+    concern (fstab/credentials file) handled as host setup outside the
+    integration, not something SSH needs to negotiate per session."""
     try:
         client_key = asyncssh.import_private_key(private_key_pem)
         _LOGGER.debug(
@@ -217,22 +221,28 @@ async def remux_file(
                 )
                 return False, True
 
-            nas_host = _unc_host(dest_path)
-            if nas_host and nas_username:
-                unc_root = f"\\\\{nas_host}\\IPC$"
-                net_use_cmd = f'net use "{unc_root}" /user:{nas_username} {nas_password}'
-                redacted_cmd = f'net use "{unc_root}" /user:{nas_username} ***'
-                _LOGGER.debug("[QBIT] remux: net use command=%s", redacted_cmd)
-                net_use_result = await asyncio.wait_for(
-                    conn.run(net_use_cmd, check=False), timeout=_QUICK_CMD_TIMEOUT,
-                )
-                _LOGGER.warning(
-                    "[QBIT] remux: net use %s exit=%s stdout=%r stderr=%r",
-                    unc_root, net_use_result.exit_status, net_use_result.stdout, net_use_result.stderr,
-                )
+            sep = "\\" if is_windows else "/"
 
-            dest_dir = dest_path.rsplit("\\", 1)[0] if "\\" in dest_path else dest_path
-            mkdir_cmd = f'if not exist "{dest_dir}" mkdir "{dest_dir}"'
+            if is_windows:
+                nas_host = _unc_host(dest_path)
+                if nas_host and nas_username:
+                    unc_root = f"\\\\{nas_host}\\IPC$"
+                    net_use_cmd = f'net use "{unc_root}" /user:{nas_username} {nas_password}'
+                    redacted_cmd = f'net use "{unc_root}" /user:{nas_username} ***'
+                    _LOGGER.debug("[QBIT] remux: net use command=%s", redacted_cmd)
+                    net_use_result = await asyncio.wait_for(
+                        conn.run(net_use_cmd, check=False), timeout=_QUICK_CMD_TIMEOUT,
+                    )
+                    _LOGGER.warning(
+                        "[QBIT] remux: net use %s exit=%s stdout=%r stderr=%r",
+                        unc_root, net_use_result.exit_status, net_use_result.stdout, net_use_result.stderr,
+                    )
+
+            dest_dir = dest_path.rsplit(sep, 1)[0] if sep in dest_path else dest_path
+            mkdir_cmd = (
+                f'if not exist "{dest_dir}" mkdir "{dest_dir}"' if is_windows
+                else f'mkdir -p "{dest_dir}"'
+            )
             _LOGGER.debug("[QBIT] remux: mkdir command=%s", mkdir_cmd)
             mkdir_result = await asyncio.wait_for(
                 conn.run(mkdir_cmd, check=False), timeout=_QUICK_CMD_TIMEOUT,

@@ -16,6 +16,17 @@ CONF_SSH_PORT = "ssh_port"
 CONF_SSH_USERNAME = "ssh_username"
 CONF_MKVMERGE_PATH = "mkvmerge_path"
 
+# The qBittorrent/mkvmerge host's OS — always the same machine (confirmed:
+# mkvmerge runs on the same client hosting qBittorrent), so one setting
+# covers path-separator choice, shell syntax for the remux's mkdir
+# precheck, and whether the Windows-only NAS "net use" step applies at all.
+CONF_MKVMERGE_HOST_OS = "mkvmerge_host_os"
+DEFAULT_MKVMERGE_HOST_OS = "windows"
+MKVMERGE_HOST_OS_CHOICES = [
+    {"value": "windows", "label": "Windows"},
+    {"value": "linux", "label": "Linux / other (POSIX)"},
+]
+
 # NAS credentials for the remux destination share — SSH's own network-logon
 # session can't use Windows Credential Manager, so this is authenticated
 # explicitly (net use \\host\IPC$) each remux rather than relying on any
