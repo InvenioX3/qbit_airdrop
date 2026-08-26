@@ -105,6 +105,12 @@ def build_remux_command(mkvmerge_path: str, source_path: str, dest_path: str, pl
     return " ".join(parts)
 
 
+def _unc_host(path: str) -> str:
+    if not path.startswith("\\\\"):
+        return ""
+    return path.lstrip("\\").split("\\", 1)[0]
+
+
 async def remux_file(
     host: str,
     ssh_port: int,
@@ -113,6 +119,8 @@ async def remux_file(
     mkvmerge_path: str,
     source_path: str,
     dest_path: str,
+    nas_username: str = "",
+    nas_password: str = "",
 ) -> tuple[bool, bool]:
     """Runs entirely on the remote Windows host over SSH — identify, decide,
     then remux straight to dest_path. Returns (success, skipped).
@@ -120,7 +128,14 @@ async def remux_file(
     Assumes the SSH server's default shell is cmd.exe (Windows OpenSSH
     Server's own default) for the mkdir precheck; if that host has been
     reconfigured to a different DefaultShell, the mkdir command below will
-    need adjusting."""
+    need adjusting.
+
+    SSH sessions on Windows are network logons and can't use Windows
+    Credential Manager (cmdkey), so if the destination is a UNC path and
+    NAS credentials are configured, authenticate to that server explicitly
+    via `net use \\host\\IPC$` before writing — this works from a network
+    logon since the password is passed inline rather than relying on any
+    cached/persisted credential."""
     try:
         client_key = asyncssh.import_private_key(private_key_pem)
         _LOGGER.debug(
@@ -172,15 +187,26 @@ async def remux_file(
                 )
                 return False, True
 
+            nas_host = _unc_host(dest_path)
+            if nas_host and nas_username:
+                unc_root = f"\\\\{nas_host}\\IPC$"
+                net_use_cmd = f'net use "{unc_root}" /user:{nas_username} {nas_password}'
+                redacted_cmd = f'net use "{unc_root}" /user:{nas_username} ***'
+                _LOGGER.debug("[QBIT] remux: net use command=%s", redacted_cmd)
+                net_use_result = await conn.run(net_use_cmd, check=False)
+                _LOGGER.warning(
+                    "[QBIT] remux: net use %s exit=%s stdout=%r stderr=%r",
+                    unc_root, net_use_result.exit_status, net_use_result.stdout, net_use_result.stderr,
+                )
+
             dest_dir = dest_path.rsplit("\\", 1)[0] if "\\" in dest_path else dest_path
             mkdir_cmd = f'if not exist "{dest_dir}" mkdir "{dest_dir}"'
             _LOGGER.debug("[QBIT] remux: mkdir command=%s", mkdir_cmd)
             mkdir_result = await conn.run(mkdir_cmd, check=False)
-            if mkdir_result.exit_status != 0:
-                _LOGGER.debug(
-                    "[QBIT] remux: mkdir precheck exit=%s stderr=%s (often just 'already exists', non-fatal)",
-                    mkdir_result.exit_status, mkdir_result.stderr,
-                )
+            _LOGGER.warning(
+                "[QBIT] remux: mkdir precheck dir=%s exit=%s stdout=%r stderr=%r",
+                dest_dir, mkdir_result.exit_status, mkdir_result.stdout, mkdir_result.stderr,
+            )
 
             remux_cmd = build_remux_command(mkvmerge_path, source_path, dest_path, plan)
             _LOGGER.debug("[QBIT] remux: command=%s", remux_cmd)

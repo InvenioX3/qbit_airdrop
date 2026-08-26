@@ -3,6 +3,7 @@ from __future__ import annotations
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
+from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import (
@@ -17,6 +18,8 @@ from .const import (
     CONF_SSH_PORT,
     CONF_SSH_USERNAME,
     CONF_MKVMERGE_PATH,
+    CONF_NAS_USERNAME,
+    CONF_NAS_PASSWORD,
 )
 from .util import base_from_data
 
@@ -33,6 +36,10 @@ def _build_schema(defaults: dict) -> vol.Schema:
         vol.Optional(CONF_SSH_PORT, default=defaults.get(CONF_SSH_PORT, 22)): int,
         vol.Optional(CONF_SSH_USERNAME, default=defaults.get(CONF_SSH_USERNAME, "")): str,
         vol.Optional(CONF_MKVMERGE_PATH, default=defaults.get(CONF_MKVMERGE_PATH, "")): str,
+        vol.Optional(CONF_NAS_USERNAME, default=defaults.get(CONF_NAS_USERNAME, "")): str,
+        vol.Optional(CONF_NAS_PASSWORD, default=defaults.get(CONF_NAS_PASSWORD, "")): selector.TextSelector(
+            selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+        ),
     })
 
 
@@ -50,6 +57,8 @@ def _normalize_input(user_input: dict) -> dict | None:
     normalized[CONF_TEMP_HA_PATH] = (user_input.get(CONF_TEMP_HA_PATH) or "").strip()
     normalized[CONF_SSH_USERNAME] = (user_input.get(CONF_SSH_USERNAME) or "").strip()
     normalized[CONF_MKVMERGE_PATH] = (user_input.get(CONF_MKVMERGE_PATH) or "").strip()
+    normalized[CONF_NAS_USERNAME] = (user_input.get(CONF_NAS_USERNAME) or "").strip()
+    normalized[CONF_NAS_PASSWORD] = user_input.get(CONF_NAS_PASSWORD) or ""
     return normalized
 
 

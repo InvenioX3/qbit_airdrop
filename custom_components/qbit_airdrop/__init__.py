@@ -26,6 +26,8 @@ from .const import (
     CONF_SSH_PORT,
     CONF_SSH_USERNAME,
     CONF_MKVMERGE_PATH,
+    CONF_NAS_USERNAME,
+    CONF_NAS_PASSWORD,
     TAG_REMUXED,
     TAG_REMUX_SKIPPED,
 )
@@ -102,6 +104,16 @@ def _resolve_ssh_username(entry: ConfigEntry) -> str:
 def _resolve_mkvmerge_path(entry: ConfigEntry) -> str:
     data = entry.options or entry.data or {}
     return (data.get(CONF_MKVMERGE_PATH) or "").strip()
+
+
+def _resolve_nas_username(entry: ConfigEntry) -> str:
+    data = entry.options or entry.data or {}
+    return (data.get(CONF_NAS_USERNAME) or "").strip()
+
+
+def _resolve_nas_password(entry: ConfigEntry) -> str:
+    data = entry.options or entry.data or {}
+    return data.get(CONF_NAS_PASSWORD) or ""
 
 
 def _cleanup_temp_folders_sync(temp_root: str, existing_names: set[str]) -> dict:
@@ -721,6 +733,8 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
 
     tv_shows_path = _resolve_base_path(entry)
     movie_path = _resolve_movie_path(entry)
+    nas_username = _resolve_nas_username(entry)
+    nas_password = _resolve_nas_password(entry)
 
     try:
         async with session.get(
@@ -806,7 +820,7 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
 
             success, skipped = await remux.remux_file(
                 ssh_host, ssh_port, ssh_username, private_key, mkvmerge_path,
-                source_path, dest_path,
+                source_path, dest_path, nas_username, nas_password,
             )
 
             if skipped:

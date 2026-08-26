@@ -16,6 +16,13 @@ CONF_SSH_PORT = "ssh_port"
 CONF_SSH_USERNAME = "ssh_username"
 CONF_MKVMERGE_PATH = "mkvmerge_path"
 
+# NAS credentials for the remux destination share — SSH's own network-logon
+# session can't use Windows Credential Manager, so this is authenticated
+# explicitly (net use \\host\IPC$) each remux rather than relying on any
+# cached/persisted credential on the host.
+CONF_NAS_USERNAME = "nas_username"
+CONF_NAS_PASSWORD = "nas_password"
+
 # qBittorrent tags used to mark remux outcome
 TAG_REMUXED = "Remuxed"
 TAG_REMUX_SKIPPED = "Remux skipped - language undefined"
