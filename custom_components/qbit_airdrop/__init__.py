@@ -366,60 +366,6 @@ async def _cleanup_temp_folders(hass, session, base, temp_ha_path) -> None:
         _LOGGER.debug("[QBIT] temp cleanup removed %s", path)
 
 
-def _find_available_name(base_name: str, existing_names: set[str]) -> str:
-    if base_name not in existing_names:
-        return base_name
-    n = 1
-    while f"{base_name} ({n})" in existing_names:
-        n += 1
-    return f"{base_name} ({n})"
-
-
-async def _collect_other_video_filenames(session, base, torrent_hash, category, torrents: dict) -> set[str]:
-    """Video-file basenames (no extension) of other tracked torrents in the
-    same internal category (empty string = category-less/movies) — scoped
-    off our own persistent record now that qBittorrent's own category field
-    is never set.
-
-    The collision unit — for both movies and TV — is the individual video
-    file name, never a folder. Same show + same season is always meant to
-    merge into one shared season folder; the only genuine TV collision is
-    two torrents wanting the same episode at once, which shows up as two
-    files wanting the same name.
-
-    Still-queued (pending, pre-metadata) "se" torrents and movies haven't
-    been renamed yet, but their eventual filename is already known from
-    rename_name at add time — checked directly rather than skipped, closing
-    the race where two same-episode (or same-movie) torrents are added
-    back-to-back before either reaches metadata. Season-pack types
-    ("s"/"season"/"complete") can't be checked this way since their
-    individual episode names aren't known until metadata arrives — a
-    narrower, accepted gap."""
-    names = set()
-
-    for other_hash, rec in torrents.items():
-        if other_hash == torrent_hash:
-            continue
-        if (rec.get("category") or "") != category:
-            continue
-
-        if rec.get("stage") == "pending":
-            if rec.get("token_type") == "se" or not category:
-                nm = rec.get("rename_name")
-                if nm:
-                    names.add(nm)
-            continue
-
-        other_index = await _fetch_index(session, base, other_hash)
-        if not other_index:
-            continue
-        for f in other_index["files"]:
-            if _is_video(f["path"]):
-                names.add(os.path.splitext(os.path.basename(f["path"]))[0])
-
-    return names
-
-
 async def _qbit_command(session, base, endpoint, data, *, timeout=10) -> bool:
     try:
         async with session.post(
@@ -466,17 +412,6 @@ async def _rename_file(session, base, torrent_hash, old_path, new_path) -> bool:
     )
 
 
-async def _set_location(session, base, torrent_hash, location) -> bool:
-    if not location:
-        return True
-
-    return await _qbit_command(
-        session, base, "setLocation",
-        {"hashes": torrent_hash, "location": location},
-        timeout=30,
-    )
-
-
 async def _add_tags(session, base, torrent_hash, tags: str) -> bool:
     return await _qbit_command(
         session, base, "addTags",
@@ -508,23 +443,25 @@ async def _apply_file_priorities(session, base, torrent_hash, files, keep_ids) -
 
 
 async def _rename_single_file_target(
-    session, base, torrent_hash, files, largest, root_folder, folder_target, file_name,
+    session, base, torrent_hash, files, largest, root_folder, file_rel_name,
     force_keep_all=False,
 ) -> bool:
     """Movie and single-episode ("se") torrents both boil down to: rename the
-    one video file, rename its folder to `folder_target`, keep only that file."""
+    one video file to file_rel_name, relative to the torrent's own root —
+    which is never itself renamed or relocated. That root stays exactly
+    qBittorrent's own permanently unique torrent name/location, which is
+    what prevents any collision between different torrents outright; any
+    category/season structure is created as a nested subfolder within it
+    via file_rel_name itself, not by touching the root."""
     ok = True
 
     if largest:
         ext = os.path.splitext(largest["path"])[1]
         new_path = (
-            f"{root_folder}/{file_name}{ext}"
-            if root_folder else f"{file_name}{ext}"
+            f"{root_folder}/{file_rel_name}{ext}"
+            if root_folder else f"{file_rel_name}{ext}"
         )
         ok &= await _rename_file(session, base, torrent_hash, largest["path"], new_path)
-
-    if root_folder:
-        ok &= await _rename_folder(session, base, torrent_hash, root_folder, folder_target)
 
     keep_ids = (
         {f["id"] for f in files} if force_keep_all
@@ -535,18 +472,24 @@ async def _rename_single_file_target(
     return ok
 
 
-async def _process_queue_item(
-    session, base, download_path, torrent_hash, meta, index, torrents, is_windows,
-) -> tuple[bool, bool]:
-    """Renames per the existing classification pipeline, then relocates via
-    setLocation exactly as it always has — rooted at Qbittorrent default
-    save path rather than a category-derived path, since qBittorrent's own
-    category field is never set (Goal 1). This is NOT the final Movies/TV
-    Shows destination — it's where qBittorrent settles permanently once
-    metadata resolves; the remux pass reads from there and writes the true
-    final output separately. Returns (done, needs_remux); needs_remux is
-    False only for an unrecognized token type, where there's nothing for a
-    later remux pass to do."""
+async def _process_queue_item(session, base, torrent_hash, meta, index) -> tuple[bool, bool]:
+    """Renames per the existing classification pipeline. The torrent's own
+    root folder is never renamed or relocated — it stays exactly
+    qBittorrent's own permanently unique torrent name and location, which
+    alone is what prevents any collision between different torrents.
+    Category/season structure is created purely as a nested subfolder
+    *within* that unchanged root (via each file's own relative rename
+    target), never by touching or moving the root itself.
+
+    No cross-torrent dedup is needed for the same reason: two torrents can
+    never collide on disk if they always live in separate root folders — a
+    later-finishing duplicate (a repack, a second copy of the same episode)
+    simply overwrites the earlier one's output once the remux pass reaches
+    the shared final destination, which is the desired behavior.
+
+    Returns (done, needs_remux); needs_remux is False only for an
+    unrecognized token type, where there's nothing for a later remux pass
+    to do."""
     token_type = meta["token_type"]
     category = meta["category"]
     season = meta["season"]
@@ -569,48 +512,25 @@ async def _process_queue_item(
     ok = True
 
     if not category:
-        # Movie (token_type "year", or unclassified — no season signal at all).
-        # Movies land as individual files, so the dedup unit is the file
-        # name itself — check other currently-tracked category-less
-        # torrents for a collision.
-        other_names = await _collect_other_video_filenames(session, base, torrent_hash, "", torrents)
-        target_name = _find_available_name(rename_name, other_names)
+        # Movie (token_type "year", or unclassified — no season signal at
+        # all). Stays flat within the untouched root — no subfolder needed.
         ok &= await _rename_single_file_target(
             session, base, torrent_hash, files, largest, root_folder,
-            target_name, target_name, force_keep_all=is_bluray,
+            rename_name, force_keep_all=is_bluray,
         )
-        if download_path:
-            ok &= await _set_location(
-                session, base, torrent_hash,
-                _build_location(download_path, target_name, is_windows=is_windows),
-            )
 
     elif token_type == "se":
-        # Same show + same season always merges into one shared season
-        # folder — that's not a collision. The only genuine TV collision is
-        # two torrents downloading the same episode at once, which shows up
-        # as two files wanting the same name.
-        other_names = await _collect_other_video_filenames(session, base, torrent_hash, category, torrents)
-        target_name = _find_available_name(rename_name, other_names)
+        # Single episode — nests under a season subfolder within the
+        # torrent's own untouched root.
         ok &= await _rename_single_file_target(
             session, base, torrent_hash, files, largest, root_folder,
-            season, target_name, force_keep_all=is_bluray,
+            f"{season}/{rename_name}", force_keep_all=is_bluray,
         )
-        if download_path:
-            location = (
-                _build_location(download_path, category, is_windows=is_windows)
-                if root_folder else _build_location(download_path, category, season, is_windows=is_windows)
-            )
-            ok &= await _set_location(session, base, torrent_hash, location)
 
     elif token_type in ("s", "season"):
-        # Same show + same season always merges into one shared season
-        # folder — that's not a collision. Each episode file is checked
-        # individually, since a pack can contain several, and each one
-        # could independently collide with a different in-progress
-        # duplicate download.
-        used_names = await _collect_other_video_filenames(session, base, torrent_hash, category, torrents)
-
+        # Single-season pack — every episode file normalizes into the same
+        # season subfolder within the untouched root, regardless of
+        # whatever folder structure it originally shipped in.
         keep_ids = (
             {f["id"] for f in files} if is_bluray
             else {
@@ -629,27 +549,15 @@ async def _process_queue_item(
                 continue
             episode = _detect_episode(os.path.basename(f["path"]))
             ext = os.path.splitext(f["path"])[1]
-            target_name = _find_available_name(f"{category} {episode}", used_names)
-            used_names.add(target_name)
-            new_path = _sibling_path(f["path"], f"{target_name}{ext}")
+            new_path = f"{season}/{category} {episode}{ext}"
             ok &= await _rename_file(session, base, torrent_hash, f["path"], new_path)
-
-        if root_folder:
-            ok &= await _rename_folder(session, base, torrent_hash, root_folder, season)
 
         ok &= await _apply_file_priorities(session, base, torrent_hash, files, keep_ids)
-        if download_path:
-            ok &= await _set_location(
-                session, base, torrent_hash,
-                _build_location(download_path, category, is_windows=is_windows),
-            )
 
     elif token_type == "complete":
-        # Same per-file dedup as "s"/"season" — root folder merging into the
-        # category folder is intentional here regardless, so only the
-        # individual episode files need a collision check.
-        used_names = await _collect_other_video_filenames(session, base, torrent_hash, category, torrents)
-
+        # Full-series pack — each episode stays under its own already-
+        # nested season subfolder (normalized below), which the remux pass
+        # reads directly off each file's parent folder.
         keep_ids = (
             {f["id"] for f in files} if is_bluray
             else {
@@ -668,14 +576,12 @@ async def _process_queue_item(
                 continue
             episode = _detect_episode(os.path.basename(f["path"]))
             ext = os.path.splitext(f["path"])[1]
-            target_name = _find_available_name(f"{category} {episode}", used_names)
-            used_names.add(target_name)
-            new_path = _sibling_path(f["path"], f"{target_name}{ext}")
+            new_path = _sibling_path(f["path"], f"{category} {episode}{ext}")
             ok &= await _rename_file(session, base, torrent_hash, f["path"], new_path)
 
-        # Rename nested season folders first — root rename happens last so
-        # their currently-indexed paths (still prefixed by the old root name)
-        # stay valid when renameFolder is called.
+        # Normalize nested season subfolders (e.g. "Season 1" -> "S01") so
+        # the remux pass can reliably read each file's season straight off
+        # its own parent folder. The root folder itself stays untouched.
         for folder in folders:
             if folder == root_folder:
                 continue
@@ -687,19 +593,7 @@ async def _process_queue_item(
             new_path = f"{parent}/{normalized}"
             ok &= await _rename_folder(session, base, torrent_hash, folder, new_path)
 
-        if root_folder:
-            ok &= await _rename_folder(session, base, torrent_hash, root_folder, category)
-
         ok &= await _apply_file_priorities(session, base, torrent_hash, files, keep_ids)
-
-        # Root folder was just renamed to `category` itself — the resolved
-        # location only needs download_path, or it'd end up download_path/category/category/...
-        if download_path:
-            location = (
-                _build_location(download_path, is_windows=is_windows)
-                if root_folder else _build_location(download_path, category, is_windows=is_windows)
-            )
-            ok &= await _set_location(session, base, torrent_hash, location)
 
     else:
         _LOGGER.warning(
@@ -1143,9 +1037,6 @@ async def async_setup_entry(
         if not base:
             return
 
-        download_path = _resolve_download_path(entry)
-        is_windows = _resolve_is_windows(entry)
-
         pending = {h: rec for h, rec in store.torrents.items() if rec.get("stage") == "pending"}
         changed = False
 
@@ -1162,8 +1053,7 @@ async def async_setup_entry(
 
             try:
                 done, needs_remux = await _process_queue_item(
-                    session, base, download_path, torrent_hash, meta, index,
-                    store.torrents, is_windows,
+                    session, base, torrent_hash, meta, index,
                 )
             except Exception:
                 _LOGGER.exception(
