@@ -802,7 +802,7 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
 
         state = str(t.get("state") or "").lower()
         if state not in _COMPLETE_STATES:
-            _LOGGER.warning("[QBIT] remux pass: hash=%s not complete yet (state=%s)", torrent_hash, state)
+            _LOGGER.debug("[QBIT] remux pass: hash=%s not complete yet (state=%s)", torrent_hash, state)
             continue
 
         tag_set = {tg.strip() for tg in str(t.get("tags") or "").split(",") if tg.strip()}
