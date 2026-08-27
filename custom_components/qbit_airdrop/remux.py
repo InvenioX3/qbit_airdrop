@@ -134,6 +134,15 @@ def _unc_host(path: str) -> str:
     return path.lstrip("\\").split("\\", 1)[0]
 
 
+def build_copy_command(source_path: str, dest_path: str, is_windows: bool) -> str:
+    """A skipped (undefined-language) file still needs to reach its real
+    destination — just as an unmodified copy rather than a remux, since we
+    can't safely decide which tracks to strip."""
+    if is_windows:
+        return f'copy /Y "{source_path}" "{dest_path}"'
+    return f'cp -f "{source_path}" "{dest_path}"'
+
+
 async def remux_file(
     host: str,
     ssh_port: int,
@@ -148,7 +157,12 @@ async def remux_file(
     is_windows: bool = True,
 ) -> tuple[bool, bool]:
     """Runs entirely on the remote host over SSH — identify, decide, then
-    remux straight to dest_path. Returns (success, skipped).
+    either remux or (if skipped for undefined-language tracks) copy as-is,
+    straight to dest_path either way. Returns (success, skipped) — skipped
+    can pair with either outcome: True/True means the as-is copy landed at
+    the destination (still tagged for manual review), True/False means a
+    normal remux succeeded, and False with either skipped value means the
+    write failed and should be retried.
 
     On Windows, assumes the SSH server's default shell is cmd.exe (Windows
     OpenSSH Server's own default) for the mkdir precheck; if that host has
@@ -214,15 +228,13 @@ async def remux_file(
             )
 
             plan = plan_tracks(identify, retain_languages)
-            if plan["skip"]:
-                _LOGGER.warning(
-                    "[QBIT] remux: undefined-language track present, skipping source=%s",
-                    source_path,
-                )
-                return False, True
 
             sep = "\\" if is_windows else "/"
 
+            # Destination prep (NAS auth + mkdir) happens regardless of the
+            # skip decision below — a skipped file still needs to land at
+            # its real destination, just as an unmodified copy instead of a
+            # remux, so it needs the same directory to exist first.
             if is_windows:
                 nas_host = _unc_host(dest_path)
                 if nas_host and nas_username:
@@ -251,6 +263,25 @@ async def remux_file(
                 "[QBIT] remux: mkdir precheck dir=%s exit=%s stdout=%r stderr=%r",
                 dest_dir, mkdir_result.exit_status, mkdir_result.stdout, mkdir_result.stderr,
             )
+
+            if plan["skip"]:
+                _LOGGER.warning(
+                    "[QBIT] remux: undefined-language track present — copying as-is instead source=%s",
+                    source_path,
+                )
+                copy_cmd = build_copy_command(source_path, dest_path, is_windows)
+                _LOGGER.debug("[QBIT] remux: copy command=%s", copy_cmd)
+                copy_result = await asyncio.wait_for(
+                    conn.run(copy_cmd, check=False), timeout=_REMUX_TIMEOUT,
+                )
+                if copy_result.exit_status != 0:
+                    _LOGGER.warning(
+                        "[QBIT] remux: as-is copy failed source=%s exit=%s stderr=%s",
+                        source_path, copy_result.exit_status, copy_result.stderr,
+                    )
+                    return False, True
+                _LOGGER.debug("[QBIT] remux: copied as-is to %s", dest_path)
+                return True, True
 
             remux_cmd = build_remux_command(mkvmerge_path, source_path, dest_path, plan)
             _LOGGER.debug("[QBIT] remux: command=%s", remux_cmd)

@@ -787,10 +787,17 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
 
     _LOGGER.debug("[QBIT] remux pass: %d torrent(s) currently awaiting remux", len(pending_remux))
 
+    changed = False
+
     for torrent_hash, rec in pending_remux.items():
         t = live_by_hash.get(torrent_hash)
         if not t:
-            _LOGGER.warning("[QBIT] remux pass: hash=%s no longer in qBittorrent, skipping", torrent_hash)
+            _LOGGER.warning(
+                "[QBIT] remux pass: hash=%s no longer in qBittorrent, dropping from tracking",
+                torrent_hash,
+            )
+            store.torrents.pop(torrent_hash, None)
+            changed = True
             continue
 
         state = str(t.get("state") or "").lower()
@@ -858,11 +865,20 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
                 )
 
                 if skipped:
-                    _LOGGER.warning(
-                        "[QBIT] remux pass: hash=%s file=%s SKIPPED — undefined-language track present",
-                        torrent_hash, file_name,
-                    )
-                    any_skipped = True
+                    if success:
+                        _LOGGER.warning(
+                            "[QBIT] remux pass: hash=%s file=%s SKIPPED (undefined-language track) "
+                            "— copied as-is to %s",
+                            torrent_hash, file_name, dest_path,
+                        )
+                        any_skipped = True
+                    else:
+                        _LOGGER.warning(
+                            "[QBIT] remux pass: hash=%s file=%s SKIPPED but the as-is copy FAILED "
+                            "— will retry next pass",
+                            torrent_hash, file_name,
+                        )
+                        all_succeeded = False
                 elif success:
                     _LOGGER.warning(
                         "[QBIT] remux pass: hash=%s file=%s SUCCEEDED -> %s",
@@ -878,9 +894,13 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
             if any_skipped:
                 await _add_tags(session, base, torrent_hash, TAG_REMUX_SKIPPED)
                 _LOGGER.warning("[QBIT] remux pass: hash=%s tagged %r", torrent_hash, TAG_REMUX_SKIPPED)
+                store.torrents.pop(torrent_hash, None)
+                changed = True
             elif all_succeeded:
                 await _add_tags(session, base, torrent_hash, TAG_REMUXED)
                 _LOGGER.warning("[QBIT] remux pass: hash=%s all files remuxed, tagged %r", torrent_hash, TAG_REMUXED)
+                store.torrents.pop(torrent_hash, None)
+                changed = True
             else:
                 _LOGGER.warning(
                     "[QBIT] remux pass: hash=%s had at least one failure — leaving untagged, will retry next pass",
@@ -892,6 +912,9 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
                 torrent_hash,
             )
             continue
+
+    if changed:
+        await store.async_save()
 
 
 async def async_setup(
