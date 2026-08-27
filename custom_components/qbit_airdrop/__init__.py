@@ -735,7 +735,16 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
             torrent_hash, category, token_type, len(videos), save_path,
         )
 
+        conn = None
         try:
+            conn = await remux.open_connection(ssh_host, ssh_port, ssh_username, private_key)
+            if conn is None:
+                _LOGGER.warning(
+                    "[QBIT] remux pass: hash=%s could not establish SSH connection, will retry next pass",
+                    torrent_hash,
+                )
+                continue
+
             all_succeeded = True
             any_skipped = False
 
@@ -755,7 +764,7 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
                 video_title = (rec.get("clean_title") or "").strip() if not category else ""
 
                 success, skipped = await remux.remux_file(
-                    ssh_host, ssh_port, ssh_username, private_key, mkvmerge_path,
+                    conn, mkvmerge_path,
                     source_path, dest_path, nas_username, nas_password, retain_languages,
                     is_windows, video_title or None,
                 )
@@ -808,6 +817,9 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
                 torrent_hash,
             )
             continue
+        finally:
+            if conn is not None:
+                await remux.close_connection(conn, ssh_host)
 
     if changed:
         await store.async_save()
