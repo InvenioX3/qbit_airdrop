@@ -24,6 +24,15 @@ add_magnet:
       required: false
       selector:
         text: {}
+    clean_title:
+      name: Clean title
+      description: >-
+        Bare cleaned title with no resolution/codec/audio suffix. Used only
+        for movies, to set the remuxed file's video track name — distinct
+        from rename_name, which keeps that suffix for the filename itself.
+      required: false
+      selector:
+        text: {}
     token_type:
       name: Token type
       description: Release classification — one of "se", "s", "season", "complete", "year", or blank.

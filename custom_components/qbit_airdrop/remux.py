@@ -18,6 +18,17 @@ _LOGGER = logging.getLogger(__name__)
 # so track matching is a simple set-containment check.
 _CODE_EXPANSIONS = {c["code"]: {c["code"], c["code2"]} for c in LANGUAGE_CHOICES}
 
+# Fallback display name for a subtitle track when it carries neither a
+# commentary nor hearing-impaired flag — those flags are optional Matroska
+# metadata a release may simply never have set.
+_LANG_LABEL_BY_CODE: dict[str, str] = {}
+for _c in LANGUAGE_CHOICES:
+    _LANG_LABEL_BY_CODE[_c["code"]] = _c["label"]
+    _LANG_LABEL_BY_CODE[_c["code2"]] = _c["label"]
+
+_COMMENTARY_LABEL = "Commentary"
+_HEARING_IMPAIRED_LABEL = "SDH"
+
 
 def _expand_retain_codes(retain_codes: list[str]) -> set[str]:
     expanded: set[str] = set()
@@ -113,8 +124,69 @@ def plan_tracks(identify: dict, retain_codes: list[str] | None = None) -> dict:
     }
 
 
-def build_remux_command(mkvmerge_path: str, source_path: str, dest_path: str, plan: dict) -> str:
+def _subtitle_title(track: dict) -> str:
+    props = track.get("properties") or {}
+    labels = []
+    if props.get("flag_commentary"):
+        labels.append(_COMMENTARY_LABEL)
+    if props.get("flag_hearing_impaired"):
+        labels.append(_HEARING_IMPAIRED_LABEL)
+    if labels:
+        return ", ".join(labels)
+    lang = _track_lang(track)
+    return _LANG_LABEL_BY_CODE.get(lang, lang or "")
+
+
+def compute_track_names(identify: dict, plan: dict, video_title: str | None) -> dict[int, str]:
+    """Track ID -> desired --track-name value.
+
+    Video naming only applies when video_title is given (movies only — TV
+    episode titles are left untouched, since there's no reliable per-episode
+    title available). Audio naming uses mkvmerge's own reported codec string
+    verbatim — the same clean name ("AC-3", "DTS", "TrueHD", ...) the GUI
+    itself shows, not anything hand-parsed. Subtitle naming uses the
+    commentary/hearing-impaired flags when the source actually set them —
+    those are real Matroska properties, but optional ones a release may
+    never have populated — falling back to the language name otherwise."""
+    names: dict[int, str] = {}
+    tracks = identify.get("tracks") or []
+
+    if video_title:
+        for t in tracks:
+            if t.get("type") == "video":
+                names[t["id"]] = video_title
+
+    audio_ids = plan["audio_keep_ids"]
+    for t in tracks:
+        if t.get("type") != "audio":
+            continue
+        if audio_ids is not None and t["id"] not in audio_ids:
+            continue
+        codec = t.get("codec")
+        if codec:
+            names[t["id"]] = codec
+
+    for t in tracks:
+        if t.get("type") != "subtitles":
+            continue
+        if t["id"] not in plan["subtitle_keep_ids"]:
+            continue
+        title = _subtitle_title(t)
+        if title:
+            names[t["id"]] = title
+
+    return names
+
+
+def build_remux_command(
+    mkvmerge_path: str, source_path: str, dest_path: str, plan: dict,
+    track_names: dict[int, str] | None = None,
+) -> str:
     parts = [f'"{mkvmerge_path}"', "-o", f'"{dest_path}"']
+
+    for track_id, name in (track_names or {}).items():
+        safe_name = name.replace('"', "")
+        parts += ["--track-name", f'"{track_id}:{safe_name}"']
 
     if plan["audio_keep_ids"] is not None:
         parts += ["--audio-tracks", ",".join(str(i) for i in plan["audio_keep_ids"])]
@@ -155,6 +227,7 @@ async def remux_file(
     nas_password: str = "",
     retain_languages: list[str] | None = None,
     is_windows: bool = True,
+    video_title: str | None = None,
 ) -> tuple[bool, bool]:
     """Runs entirely on the remote host over SSH — identify, decide, then
     either remux or (if skipped for undefined-language tracks) copy as-is,
@@ -217,8 +290,11 @@ async def remux_file(
                 {
                     "id": t.get("id"),
                     "type": t.get("type"),
+                    "codec": t.get("codec"),
                     "language": (t.get("properties") or {}).get("language"),
                     "language_ietf": (t.get("properties") or {}).get("language_ietf"),
+                    "flag_commentary": (t.get("properties") or {}).get("flag_commentary"),
+                    "flag_hearing_impaired": (t.get("properties") or {}).get("flag_hearing_impaired"),
                 }
                 for t in (identify.get("tracks") or [])
             ]
@@ -228,6 +304,8 @@ async def remux_file(
             )
 
             plan = plan_tracks(identify, retain_languages)
+            track_names = compute_track_names(identify, plan, video_title)
+            _LOGGER.debug("[QBIT] remux: track_names=%s", track_names)
 
             sep = "\\" if is_windows else "/"
 
@@ -283,7 +361,7 @@ async def remux_file(
                 _LOGGER.debug("[QBIT] remux: copied as-is to %s", dest_path)
                 return True, True
 
-            remux_cmd = build_remux_command(mkvmerge_path, source_path, dest_path, plan)
+            remux_cmd = build_remux_command(mkvmerge_path, source_path, dest_path, plan, track_names)
             _LOGGER.debug("[QBIT] remux: command=%s", remux_cmd)
             result = await asyncio.wait_for(
                 conn.run(remux_cmd, check=False), timeout=_REMUX_TIMEOUT,

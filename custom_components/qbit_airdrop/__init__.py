@@ -858,10 +858,12 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
                     torrent_hash, file_name, source_path, dest_path,
                 )
 
+                video_title = (rec.get("clean_title") or "").strip() if not category else ""
+
                 success, skipped = await remux.remux_file(
                     ssh_host, ssh_port, ssh_username, private_key, mkvmerge_path,
                     source_path, dest_path, nas_username, nas_password, retain_languages,
-                    is_windows,
+                    is_windows, video_title or None,
                 )
 
                 if skipped:
@@ -1074,6 +1076,7 @@ async def async_setup_entry(
         store.torrents[torrent_hash] = {
             "category": category,
             "rename_name": (data.get("rename_name") or "").strip(),
+            "clean_title": (data.get("clean_title") or "").strip(),
             "token_type": (data.get("token_type") or "").strip(),
             "season": (data.get("season") or "").strip(),
             "stage": "pending",
