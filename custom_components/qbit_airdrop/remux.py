@@ -282,7 +282,7 @@ async def remux_file(
             ),
             timeout=_CONNECT_TIMEOUT,
         )
-        async with conn:
+        try:
             identify_cmd = f'"{mkvmerge_path}" -J "{source_path}"'
             _LOGGER.debug("[QBIT] remux: identify command=%s", identify_cmd)
             result = await asyncio.wait_for(
@@ -395,6 +395,23 @@ async def remux_file(
 
             _LOGGER.debug("[QBIT] remux: wrote %s", dest_path)
             return True, False
+        finally:
+            # Connection teardown itself was previously unbounded — with
+            # several files processed per torrent (a season pack), each one
+            # opening and closing its own connection, an occasional hung
+            # close would silently wedge the shared poll lock for a long
+            # time with nothing logged. Bounded and non-fatal: a slow close
+            # just gets abandoned rather than blocking the next file.
+            conn.close()
+            try:
+                await asyncio.wait_for(conn.wait_closed(), timeout=_QUICK_CMD_TIMEOUT)
+            except asyncio.TimeoutError:
+                _LOGGER.warning(
+                    "[QBIT] remux: connection close timed out host=%s — abandoning cleanup wait",
+                    host,
+                )
+            except (OSError, asyncssh.Error):
+                _LOGGER.debug("[QBIT] remux: error while closing connection", exc_info=True)
     except asyncio.TimeoutError:
         _LOGGER.error(
             "[QBIT] remux: timed out host=%s source=%s — treating as a failure, will retry next pass",
