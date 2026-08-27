@@ -53,7 +53,7 @@ _INVALID_PATH_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 _SEASON_TOKEN_RE = re.compile(r"\bS(\d{1,2})\b(?!-\d)", re.I)
 _SEASON_WORD_RE = re.compile(r"\bSeason\s*(\d{1,2})\b", re.I)
-_EPISODE_TOKEN_RE = re.compile(r"\bS(\d{1,2})((?:E\d{1,3})+)\b", re.I)
+_EPISODE_TOKEN_RE = re.compile(r"\bS(\d{1,2})[.\s_-]?((?:E\d{1,3})+)\b", re.I)
 _EPISODE_NUM_RE = re.compile(r"E(\d{1,3})", re.I)
 
 _VIDEO_EXTS = {
