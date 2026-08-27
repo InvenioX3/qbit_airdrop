@@ -126,6 +126,7 @@ def plan_tracks(identify: dict, retain_codes: list[str] | None = None) -> dict:
 
 def _subtitle_title(track: dict) -> str:
     props = track.get("properties") or {}
+
     labels = []
     if props.get("flag_commentary"):
         labels.append(_COMMENTARY_LABEL)
@@ -133,6 +134,21 @@ def _subtitle_title(track: dict) -> str:
         labels.append(_HEARING_IMPAIRED_LABEL)
     if labels:
         return ", ".join(labels)
+
+    # The flags above are frequently just never set by whatever encoded the
+    # file — fall back to pattern-matching the track's own existing title
+    # for these two standardized English terms specifically (not a general
+    # translation/parsing attempt — just checking whether the encoder
+    # already wrote one of these two words verbatim).
+    existing_name = str(props.get("track_name") or "").lower()
+    text_labels = []
+    if "commentary" in existing_name:
+        text_labels.append(_COMMENTARY_LABEL)
+    if "sdh" in existing_name:
+        text_labels.append(_HEARING_IMPAIRED_LABEL)
+    if text_labels:
+        return ", ".join(text_labels)
+
     lang = _track_lang(track)
     return _LANG_LABEL_BY_CODE.get(lang, lang or "")
 
@@ -147,7 +163,9 @@ def compute_track_names(identify: dict, plan: dict, video_title: str | None) -> 
     itself shows, not anything hand-parsed. Subtitle naming uses the
     commentary/hearing-impaired flags when the source actually set them —
     those are real Matroska properties, but optional ones a release may
-    never have populated — falling back to the language name otherwise."""
+    never have populated. When absent, falls back to pattern-matching the
+    track's own existing title for those same two words, then finally to
+    the language name if neither signal is present."""
     names: dict[int, str] = {}
     tracks = identify.get("tracks") or []
 
@@ -291,6 +309,7 @@ async def remux_file(
                     "id": t.get("id"),
                     "type": t.get("type"),
                     "codec": t.get("codec"),
+                    "track_name": (t.get("properties") or {}).get("track_name"),
                     "language": (t.get("properties") or {}).get("language"),
                     "language_ietf": (t.get("properties") or {}).get("language_ietf"),
                     "flag_commentary": (t.get("properties") or {}).get("flag_commentary"),
