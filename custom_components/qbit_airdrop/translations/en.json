@@ -20,9 +20,9 @@
           "nas_password": "NAS password (remux destination):",
           "retain_languages": "Languages to keep (audio):",
           "retain_subtitle_languages": "Languages to keep (subtitles):",
-          "opensubtitles_api_key": "OpenSubtitles.com API key (optional):",
           "opensubtitles_username": "OpenSubtitles.com username (optional):",
-          "opensubtitles_password": "OpenSubtitles.com password (optional):"
+          "opensubtitles_password": "OpenSubtitles.com password (optional):",
+          "pause_subtitles_on_quota": "Pause subtitle fetching for 24h if the OpenSubtitles quota is hit"
         }
       }
     },
@@ -52,9 +52,9 @@
           "nas_password": "NAS password (remux destination):",
           "retain_languages": "Languages to keep (audio):",
           "retain_subtitle_languages": "Languages to keep (subtitles):",
-          "opensubtitles_api_key": "OpenSubtitles.com API key (optional):",
           "opensubtitles_username": "OpenSubtitles.com username (optional):",
-          "opensubtitles_password": "OpenSubtitles.com password (optional):"
+          "opensubtitles_password": "OpenSubtitles.com password (optional):",
+          "pause_subtitles_on_quota": "Pause subtitle fetching for 24h if the OpenSubtitles quota is hit"
         }
       }
     },

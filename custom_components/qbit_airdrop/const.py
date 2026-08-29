@@ -50,12 +50,19 @@ DEFAULT_RETAIN_LANGUAGES = ["eng"]
 CONF_RETAIN_SUBTITLE_LANGUAGES = "retain_subtitle_languages"
 DEFAULT_RETAIN_SUBTITLE_LANGUAGES = ["eng"]
 
-# OpenSubtitles.com — optional. Feature is only active once an API key,
-# account login, and at least one subtitle-retention language are all
-# configured; any missing piece just leaves subtitle fetching disabled.
-CONF_OPENSUBTITLES_API_KEY = "opensubtitles_api_key"
+# OpenSubtitles.com — optional. Feature is only active once an account
+# login and at least one subtitle-retention language are configured; either
+# missing just leaves subtitle fetching disabled. The API key identifies
+# this integration itself (the "consumer" app), not the end user — it's a
+# fixed constant in opensubtitles.py, never a user-entered setting.
 CONF_OPENSUBTITLES_USERNAME = "opensubtitles_username"
 CONF_OPENSUBTITLES_PASSWORD = "opensubtitles_password"
+
+# When on, hitting the daily OpenSubtitles quota pauses subtitle fetching
+# specifically (not the rest of remuxing — audio/video processing and
+# container conversion are unaffected) for a flat 24 hours from detection,
+# rather than retrying against an already-exhausted quota on every pass.
+CONF_PAUSE_SUBTITLES_ON_QUOTA = "pause_subtitles_on_quota"
 
 LANGUAGE_CHOICES = [
     {"code": "eng", "code2": "en", "label": "English"},

@@ -33,9 +33,9 @@ from .const import (
     DEFAULT_RETAIN_LANGUAGES,
     CONF_RETAIN_SUBTITLE_LANGUAGES,
     DEFAULT_RETAIN_SUBTITLE_LANGUAGES,
-    CONF_OPENSUBTITLES_API_KEY,
     CONF_OPENSUBTITLES_USERNAME,
     CONF_OPENSUBTITLES_PASSWORD,
+    CONF_PAUSE_SUBTITLES_ON_QUOTA,
     CONF_MKVMERGE_HOST_OS,
     DEFAULT_MKVMERGE_HOST_OS,
     LANGUAGE_CHOICES,
@@ -139,13 +139,17 @@ def _resolve_retain_subtitle_languages(entry: ConfigEntry) -> list[str]:
     return list(data.get(CONF_RETAIN_SUBTITLE_LANGUAGES) or DEFAULT_RETAIN_SUBTITLE_LANGUAGES)
 
 
-def _resolve_opensubtitles_config(entry: ConfigEntry) -> tuple[str, str, str]:
+def _resolve_opensubtitles_config(entry: ConfigEntry) -> tuple[str, str]:
     data = entry.options or entry.data or {}
     return (
-        (data.get(CONF_OPENSUBTITLES_API_KEY) or "").strip(),
         (data.get(CONF_OPENSUBTITLES_USERNAME) or "").strip(),
         data.get(CONF_OPENSUBTITLES_PASSWORD) or "",
     )
+
+
+def _resolve_pause_subtitles_on_quota(entry: ConfigEntry) -> bool:
+    data = entry.options or entry.data or {}
+    return bool(data.get(CONF_PAUSE_SUBTITLES_ON_QUOTA, False))
 
 
 def _resolve_is_windows(entry: ConfigEntry) -> bool:
@@ -717,10 +721,27 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
     nas_password = _resolve_nas_password(entry)
     retain_languages = _resolve_retain_languages(entry)
     retain_subtitle_languages = _resolve_retain_subtitle_languages(entry)
-    os_api_key, os_username, os_password = _resolve_opensubtitles_config(entry)
+    os_username, os_password = _resolve_opensubtitles_config(entry)
+    pause_on_quota = _resolve_pause_subtitles_on_quota(entry)
     os_state = {"token": None, "attempted": False}
     is_windows = _resolve_is_windows(entry)
     sep = "\\" if is_windows else "/"
+
+    # Quota-exhaustion pause is deliberately in-memory only (not persisted) —
+    # the only consequence of losing it on an HA restart is one wasted retry
+    # that immediately re-detects the exhaustion and backs off again, which
+    # doesn't justify the overhead of a persistent store for something this
+    # low-stakes and self-correcting.
+    entry_data = hass.data.setdefault(DOMAIN, {}).setdefault(entry.entry_id, {})
+    quota_exhausted_until = entry_data.get("subtitle_quota_exhausted_until")
+    subtitles_paused = bool(
+        pause_on_quota and quota_exhausted_until and dt_util.utcnow() < quota_exhausted_until
+    )
+    if subtitles_paused:
+        _LOGGER.debug(
+            "[QBIT] remux pass: subtitle fetching paused until %s (quota previously exhausted)",
+            quota_exhausted_until,
+        )
 
     try:
         async with session.get(
@@ -839,10 +860,10 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
                 plan = remux.plan_tracks(identify, retain_languages, retain_subtitle_languages)
 
                 subtitle_fetches = []
-                if plan["missing_subtitle_langs"] and os_api_key and os_username and os_password:
+                if plan["missing_subtitle_langs"] and os_username and os_password and not subtitles_paused:
                     if os_state["token"] is None and not os_state["attempted"]:
                         os_state["attempted"] = True
-                        os_state["token"] = await opensubtitles.login(session, os_api_key, os_username, os_password)
+                        os_state["token"] = await opensubtitles.login(session, os_username, os_password)
                         if os_state["token"] is None:
                             _LOGGER.warning(
                                 "[QBIT] remux pass: OpenSubtitles login failed — skipping subtitle fetch this pass",
@@ -852,20 +873,32 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
                     if os_state["token"] and search_params:
                         for lang_code in plan["missing_subtitle_langs"]:
                             lang2 = _LANG_CODE2_BY_CODE.get(lang_code, lang_code)
-                            attrs = await opensubtitles.search(
-                                session, os_api_key, os_state["token"], language=lang2, **search_params,
-                            )
-                            files_found = (attrs or {}).get("files") or []
-                            file_id = files_found[0].get("file_id") if files_found else None
-                            if not file_id:
-                                _LOGGER.debug(
-                                    "[QBIT] remux pass: no OpenSubtitles match lang=%s params=%s",
-                                    lang_code, search_params,
+                            try:
+                                attrs = await opensubtitles.search(
+                                    session, os_state["token"], language=lang2, **search_params,
                                 )
-                                continue
-                            url = await opensubtitles.request_download(
-                                session, os_api_key, os_state["token"], file_id,
-                            )
+                                files_found = (attrs or {}).get("files") or []
+                                file_id = files_found[0].get("file_id") if files_found else None
+                                if not file_id:
+                                    _LOGGER.debug(
+                                        "[QBIT] remux pass: no OpenSubtitles match lang=%s params=%s",
+                                        lang_code, search_params,
+                                    )
+                                    continue
+                                url = await opensubtitles.request_download(
+                                    session, os_state["token"], file_id,
+                                )
+                            except opensubtitles.QuotaExceededError:
+                                if pause_on_quota:
+                                    entry_data["subtitle_quota_exhausted_until"] = (
+                                        dt_util.utcnow() + timedelta(hours=24)
+                                    )
+                                    _LOGGER.warning(
+                                        "[QBIT] remux pass: OpenSubtitles quota exceeded — pausing "
+                                        "subtitle fetching for 24h, rest of remux proceeds normally",
+                                    )
+                                subtitles_paused = True
+                                break
                             if not url:
                                 continue
                             label = _LANG_LABEL_BY_CODE.get(lang_code, lang_code)

@@ -28,9 +28,9 @@ from .const import (
     CONF_MKVMERGE_HOST_OS,
     DEFAULT_MKVMERGE_HOST_OS,
     MKVMERGE_HOST_OS_CHOICES,
-    CONF_OPENSUBTITLES_API_KEY,
     CONF_OPENSUBTITLES_USERNAME,
     CONF_OPENSUBTITLES_PASSWORD,
+    CONF_PAUSE_SUBTITLES_ON_QUOTA,
 )
 from .util import base_from_data
 from . import opensubtitles
@@ -90,13 +90,16 @@ def _build_schema(defaults: dict) -> vol.Schema:
                 mode=selector.SelectSelectorMode.DROPDOWN,
             )
         ),
-        vol.Optional(CONF_OPENSUBTITLES_API_KEY, default=defaults.get(CONF_OPENSUBTITLES_API_KEY, "")): str,
         vol.Optional(CONF_OPENSUBTITLES_USERNAME, default=defaults.get(CONF_OPENSUBTITLES_USERNAME, "")): str,
         vol.Optional(
             CONF_OPENSUBTITLES_PASSWORD, default=defaults.get(CONF_OPENSUBTITLES_PASSWORD, "")
         ): selector.TextSelector(
             selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
         ),
+        vol.Optional(
+            CONF_PAUSE_SUBTITLES_ON_QUOTA,
+            default=defaults.get(CONF_PAUSE_SUBTITLES_ON_QUOTA, False),
+        ): bool,
     })
 
 
@@ -125,24 +128,23 @@ def _normalize_input(user_input: dict) -> dict | None:
     normalized[CONF_RETAIN_SUBTITLE_LANGUAGES] = list(
         user_input.get(CONF_RETAIN_SUBTITLE_LANGUAGES) or []
     ) or list(DEFAULT_RETAIN_SUBTITLE_LANGUAGES)
-    normalized[CONF_OPENSUBTITLES_API_KEY] = (user_input.get(CONF_OPENSUBTITLES_API_KEY) or "").strip()
     normalized[CONF_OPENSUBTITLES_USERNAME] = (user_input.get(CONF_OPENSUBTITLES_USERNAME) or "").strip()
     normalized[CONF_OPENSUBTITLES_PASSWORD] = user_input.get(CONF_OPENSUBTITLES_PASSWORD) or ""
+    normalized[CONF_PAUSE_SUBTITLES_ON_QUOTA] = bool(user_input.get(CONF_PAUSE_SUBTITLES_ON_QUOTA, False))
     return normalized
 
 
 async def _can_login_opensubtitles(hass, data: dict) -> bool:
-    """OpenSubtitles is entirely optional — only validated if all three
-    fields are actually filled in; leaving them blank just disables
-    subtitle fetching rather than blocking setup."""
-    api_key = data.get(CONF_OPENSUBTITLES_API_KEY)
+    """OpenSubtitles is entirely optional — only validated if both fields
+    are actually filled in; leaving them blank just disables subtitle
+    fetching rather than blocking setup."""
     username = data.get(CONF_OPENSUBTITLES_USERNAME)
     password = data.get(CONF_OPENSUBTITLES_PASSWORD)
-    if not (api_key and username and password):
+    if not (username and password):
         return True
 
     session = async_get_clientsession(hass)
-    token = await opensubtitles.login(session, api_key, username, password)
+    token = await opensubtitles.login(session, username, password)
     return token is not None
 
 
