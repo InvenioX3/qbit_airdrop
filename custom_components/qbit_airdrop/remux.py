@@ -34,7 +34,8 @@ for _c in LANGUAGE_CHOICES:
 
 _COMMENTARY_LABEL = "Commentary"
 _HEARING_IMPAIRED_LABEL = "SDH"
-_INJECTED_SUFFIX = "(Qbit Injection)"
+_OPENSUBTITLES_INJECTED_LABEL = "(OpenSubtitles->Qbit)"
+_TORRENT_INJECTED_LABEL = "(Torrent->Qbit)"
 
 
 def _expand_retain_codes(retain_codes: list[str]) -> set[str]:
@@ -213,8 +214,12 @@ def compute_track_names(identify: dict, plan: dict, video_title: str | None) -> 
     return names
 
 
-def injected_subtitle_track_name(language_label: str) -> str:
-    return f"{language_label} {_INJECTED_SUFFIX}"
+def injected_subtitle_track_name(source: str = "opensubtitles") -> str:
+    # No language repeated here deliberately — the media player already
+    # derives and displays a human-readable language name from the track's
+    # --language tag itself, so including it again in the track name just
+    # produced duplicated, cluttered labels like "English - English (...)".
+    return _TORRENT_INJECTED_LABEL if source == "torrent" else _OPENSUBTITLES_INJECTED_LABEL
 
 
 def build_remux_command(
@@ -467,14 +472,26 @@ async def write_remuxed_file(
 
         extra_subtitles = []
         if subtitle_fetches:
+            needs_download = [s for s in subtitle_fetches if not s.get("remote_path")]
             temp_dir = "%TEMP%\\qbit_airdrop_subs" if is_windows else "/tmp/qbit_airdrop_subs"
-            temp_mkdir_cmd = (
-                f'if not exist "{temp_dir}" mkdir "{temp_dir}"' if is_windows
-                else f'mkdir -p "{temp_dir}"'
-            )
-            await asyncio.wait_for(conn.run(temp_mkdir_cmd, check=False), timeout=_QUICK_CMD_TIMEOUT)
+            if needs_download:
+                temp_mkdir_cmd = (
+                    f'if not exist "{temp_dir}" mkdir "{temp_dir}"' if is_windows
+                    else f'mkdir -p "{temp_dir}"'
+                )
+                await asyncio.wait_for(conn.run(temp_mkdir_cmd, check=False), timeout=_QUICK_CMD_TIMEOUT)
 
             for i, sub in enumerate(subtitle_fetches):
+                # Already part of the torrent — reference its existing
+                # remote path directly, no download or cleanup needed.
+                if sub.get("remote_path"):
+                    extra_subtitles.append({
+                        "lang": sub["lang"],
+                        "track_name": sub["track_name"],
+                        "path": sub["remote_path"],
+                    })
+                    continue
+
                 filename = f"sub_{sub['lang']}_{i}.srt"
                 remote_path = await download_subtitle(conn, sub["url"], temp_dir, filename, is_windows)
                 if remote_path:

@@ -66,8 +66,15 @@ _VIDEO_EXTS = {
     ".mkv", ".mp4", ".avi", ".m4v", ".mov", ".ts", ".m2ts", ".wmv", ".iso",
 }
 
+# Substring search rather than a strict suffix check — real-world releases
+# sometimes append tracker-signature junk after the true extension (e.g.
+# "...en.srt[eztv.re]"), which a plain os.path.splitext would miss entirely.
+# Neither string realistically appears anywhere in a non-subtitle filename.
+_SUBTITLE_EXT_RE = re.compile(r"\.(srt|ass)", re.I)
+
 _LANG_CODE2_BY_CODE = {c["code"]: c["code2"] for c in LANGUAGE_CHOICES}
-_LANG_LABEL_BY_CODE = {c["code"]: c["label"] for c in LANGUAGE_CHOICES}
+_LANG_CODE3_BY_CODE2 = {c["code2"]: c["code"] for c in LANGUAGE_CHOICES}
+_LANG_CODE_SET = set(_LANG_CODE2_BY_CODE) | set(_LANG_CODE3_BY_CODE2)
 
 
 def _resolve_base_path(entry: ConfigEntry) -> str:
@@ -278,6 +285,44 @@ def _subtitle_search_params(category: str, season: str, token_type: str, file_re
         "season_number": int(season_digits),
         "episode_number": int(episode_nums[0]),
     }
+
+
+def _is_subtitle_file(path: str) -> bool:
+    return bool(_SUBTITLE_EXT_RE.search(path))
+
+
+def _detect_filename_language(basename: str) -> str:
+    """Looks for a known language code as its own delimited segment in a
+    subtitle's filename (e.g. "...EDGE2020.eng.srt" -> "eng",
+    "...AppleTor.en.srt[eztv.re]" -> "eng"). Falls back to English when
+    nothing recognizable is found, same as the assumption used elsewhere
+    when a track's language can't be determined."""
+    segments = re.split(r"[.\s_\[\]()-]+", basename.lower())
+    for seg in segments:
+        if seg in _LANG_CODE_SET:
+            return _LANG_CODE3_BY_CODE2.get(seg, seg)
+    return "eng"
+
+
+def _find_external_subtitles(index_files: list[dict], video_rel_path: str, category: str) -> list[dict]:
+    """.srt/.ass files already present in the torrent that belong to this
+    specific video — matched by episode code for TV (the same
+    _detect_episode used for renaming, so it's just as tolerant of odd
+    filenames), or any subtitle present at all for movies, since a movie
+    torrent is effectively always a single video file with nothing else it
+    could belong to."""
+    candidates = [f for f in index_files if _is_subtitle_file(f["path"])]
+    if not candidates:
+        return []
+
+    if not category:
+        return candidates
+
+    video_episode = _detect_episode(os.path.basename(video_rel_path))
+    if not video_episode:
+        return []
+
+    return [f for f in candidates if _detect_episode(os.path.basename(f["path"])) == video_episode]
 
 
 def _file_in_season_folder(path: str) -> bool:
@@ -860,7 +905,32 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
                 plan = remux.plan_tracks(identify, retain_languages, retain_subtitle_languages)
 
                 subtitle_fetches = []
-                if plan["missing_subtitle_langs"] and os_username and os_password and not subtitles_paused:
+                still_missing_langs = list(plan["missing_subtitle_langs"])
+
+                if still_missing_langs:
+                    external_subs = _find_external_subtitles(index["files"], f["path"], category)
+                    external_by_lang = {}
+                    for sub_f in external_subs:
+                        lang = _detect_filename_language(os.path.basename(sub_f["path"]))
+                        external_by_lang.setdefault(lang, sub_f)
+
+                    for lang_code in list(still_missing_langs):
+                        sub_f = external_by_lang.get(lang_code)
+                        if not sub_f:
+                            continue
+                        sub_source_path = f"{save_path}{sep}{sub_f['path'].replace('/', sep)}"
+                        subtitle_fetches.append({
+                            "lang": lang_code,
+                            "track_name": remux.injected_subtitle_track_name("torrent"),
+                            "remote_path": sub_source_path,
+                        })
+                        still_missing_langs.remove(lang_code)
+                        _LOGGER.warning(
+                            "[QBIT] remux pass: hash=%s using torrent-provided subtitle lang=%s for file=%s (%s)",
+                            torrent_hash, lang_code, file_name, sub_f["path"],
+                        )
+
+                if still_missing_langs and os_username and os_password and not subtitles_paused:
                     if os_state["token"] is None and not os_state["attempted"]:
                         os_state["attempted"] = True
                         os_state["token"] = await opensubtitles.login(session, os_username, os_password)
@@ -871,7 +941,7 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
 
                     search_params = _subtitle_search_params(category, season, token_type, f["path"], clean_title)
                     if os_state["token"] and search_params:
-                        for lang_code in plan["missing_subtitle_langs"]:
+                        for lang_code in still_missing_langs:
                             lang2 = _LANG_CODE2_BY_CODE.get(lang_code, lang_code)
                             try:
                                 attrs = await opensubtitles.search(
@@ -901,10 +971,9 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
                                 break
                             if not url:
                                 continue
-                            label = _LANG_LABEL_BY_CODE.get(lang_code, lang_code)
                             subtitle_fetches.append({
                                 "lang": lang_code,
-                                "track_name": remux.injected_subtitle_track_name(label),
+                                "track_name": remux.injected_subtitle_track_name(),
                                 "url": url,
                             })
                             _LOGGER.warning(
