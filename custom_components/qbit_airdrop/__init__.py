@@ -1061,10 +1061,21 @@ async def async_setup_entry(
         if download_path_base:
             unique_name = _magnet_display_name(magnet) or _extract_hash(magnet)
             if unique_name:
-                form["downloadPath"] = _build_location(
+                # savepath, not downloadPath/useDownloadPath — the latter is
+                # only a temporary/incomplete-download override, and
+                # qBittorrent automatically moves the completed content out
+                # of it into savepath (defaulting to qBittorrent's own
+                # global Default Save Path, since we never set it) once the
+                # torrent finishes. That move only carries along whatever
+                # internal folder structure the torrent itself has — a
+                # torrent with no internal wrapping folder loses the unique
+                # per-torrent folder entirely at that point, dropping our
+                # renamed season folder bare into the default save path
+                # root. savepath sets the real, permanent destination up
+                # front, so there's no later move to lose the wrapper during.
+                form["savepath"] = _build_location(
                     download_path_base, unique_name, is_windows=_resolve_is_windows(entry),
                 )
-                form["useDownloadPath"] = "true"
 
         async with session.post(
             f"{base}/api/v2/torrents/add",
