@@ -573,9 +573,10 @@ async def _rename_single_file_target(
         )
         ok &= await _rename_file(session, base, torrent_hash, largest["path"], new_path)
 
+    subtitle_ids = {f["id"] for f in files if _is_subtitle_file(f["path"])}
     keep_ids = (
         {f["id"] for f in files} if force_keep_all
-        else ({largest["id"]} if largest else set())
+        else ({largest["id"]} if largest else set()) | subtitle_ids
     )
     ok &= await _apply_file_priorities(session, base, torrent_hash, files, keep_ids)
 
@@ -641,13 +642,14 @@ async def _process_queue_item(session, base, torrent_hash, meta, index) -> tuple
         # Single-season pack — every episode file normalizes into the same
         # season subfolder within the untouched root, regardless of
         # whatever folder structure it originally shipped in.
+        subtitle_ids = {f["id"] for f in files if _is_subtitle_file(f["path"])}
         keep_ids = (
             {f["id"] for f in files} if is_bluray
             else {
                 f["id"] for f in videos
                 if _file_in_season_folder(f["path"])
                 and _detect_episode(os.path.basename(f["path"]))
-            }
+            } | subtitle_ids
         )
 
         for f in videos:
@@ -668,13 +670,14 @@ async def _process_queue_item(session, base, torrent_hash, meta, index) -> tuple
         # Full-series pack — each episode stays under its own already-
         # nested season subfolder (normalized below), which the remux pass
         # reads directly off each file's parent folder.
+        subtitle_ids = {f["id"] for f in files if _is_subtitle_file(f["path"])}
         keep_ids = (
             {f["id"] for f in files} if is_bluray
             else {
                 f["id"] for f in videos
                 if _file_in_season_folder(f["path"])
                 and _detect_episode(os.path.basename(f["path"]))
-            }
+            } | subtitle_ids
         )
 
         for f in videos:
