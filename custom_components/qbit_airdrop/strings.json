@@ -18,13 +18,18 @@
           "mkvmerge_host_os": "Mkvmerge/qBittorrent host OS:",
           "nas_username": "NAS username (remux destination):",
           "nas_password": "NAS password (remux destination):",
-          "retain_languages": "Languages to keep (audio/subtitles):"
+          "retain_languages": "Languages to keep (audio):",
+          "retain_subtitle_languages": "Languages to keep (subtitles):",
+          "opensubtitles_api_key": "OpenSubtitles.com API key (optional):",
+          "opensubtitles_username": "OpenSubtitles.com username (optional):",
+          "opensubtitles_password": "OpenSubtitles.com password (optional):"
         }
       }
     },
     "error": {
       "invalid_host_port": "Host is required and port must be a positive number.",
-      "cannot_connect": "Could not reach qBittorrent at that host and port. Check that the WebUI is enabled and reachable."
+      "cannot_connect": "Could not reach qBittorrent at that host and port. Check that the WebUI is enabled and reachable.",
+      "opensubtitles_login_failed": "Could not log in to OpenSubtitles.com with those credentials. Leave the three OpenSubtitles fields blank to disable subtitle fetching."
     }
   },
   "options": {
@@ -45,13 +50,18 @@
           "mkvmerge_host_os": "Mkvmerge/qBittorrent host OS:",
           "nas_username": "NAS username (remux destination):",
           "nas_password": "NAS password (remux destination):",
-          "retain_languages": "Languages to keep (audio/subtitles):"
+          "retain_languages": "Languages to keep (audio):",
+          "retain_subtitle_languages": "Languages to keep (subtitles):",
+          "opensubtitles_api_key": "OpenSubtitles.com API key (optional):",
+          "opensubtitles_username": "OpenSubtitles.com username (optional):",
+          "opensubtitles_password": "OpenSubtitles.com password (optional):"
         }
       }
     },
     "error": {
       "invalid_host_port": "Host is required and port must be a positive number.",
-      "cannot_connect": "Could not reach qBittorrent at that host and port. Check that the WebUI is enabled and reachable."
+      "cannot_connect": "Could not reach qBittorrent at that host and port. Check that the WebUI is enabled and reachable.",
+      "opensubtitles_login_failed": "Could not log in to OpenSubtitles.com with those credentials. Leave the three OpenSubtitles fields blank to disable subtitle fetching."
     }
   }
 }

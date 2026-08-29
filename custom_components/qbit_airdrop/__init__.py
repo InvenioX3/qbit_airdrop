@@ -17,6 +17,7 @@ from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
 
 from . import remux
+from . import opensubtitles
 from .const import (
     DOMAIN,
     CONF_BASE_PATH,
@@ -30,10 +31,15 @@ from .const import (
     CONF_NAS_PASSWORD,
     CONF_RETAIN_LANGUAGES,
     DEFAULT_RETAIN_LANGUAGES,
+    CONF_RETAIN_SUBTITLE_LANGUAGES,
+    DEFAULT_RETAIN_SUBTITLE_LANGUAGES,
+    CONF_OPENSUBTITLES_API_KEY,
+    CONF_OPENSUBTITLES_USERNAME,
+    CONF_OPENSUBTITLES_PASSWORD,
     CONF_MKVMERGE_HOST_OS,
     DEFAULT_MKVMERGE_HOST_OS,
+    LANGUAGE_CHOICES,
     TAG_REMUXED,
-    TAG_REMUX_SKIPPED,
 )
 from .store import TorrentStore
 from .util import resolve_base as _resolve_base
@@ -59,6 +65,9 @@ _EPISODE_NUM_RE = re.compile(r"E(\d{1,3})", re.I)
 _VIDEO_EXTS = {
     ".mkv", ".mp4", ".avi", ".m4v", ".mov", ".ts", ".m2ts", ".wmv", ".iso",
 }
+
+_LANG_CODE2_BY_CODE = {c["code"]: c["code2"] for c in LANGUAGE_CHOICES}
+_LANG_LABEL_BY_CODE = {c["code"]: c["label"] for c in LANGUAGE_CHOICES}
 
 
 def _resolve_base_path(entry: ConfigEntry) -> str:
@@ -123,6 +132,20 @@ def _resolve_nas_password(entry: ConfigEntry) -> str:
 def _resolve_retain_languages(entry: ConfigEntry) -> list[str]:
     data = entry.options or entry.data or {}
     return list(data.get(CONF_RETAIN_LANGUAGES) or DEFAULT_RETAIN_LANGUAGES)
+
+
+def _resolve_retain_subtitle_languages(entry: ConfigEntry) -> list[str]:
+    data = entry.options or entry.data or {}
+    return list(data.get(CONF_RETAIN_SUBTITLE_LANGUAGES) or DEFAULT_RETAIN_SUBTITLE_LANGUAGES)
+
+
+def _resolve_opensubtitles_config(entry: ConfigEntry) -> tuple[str, str, str]:
+    data = entry.options or entry.data or {}
+    return (
+        (data.get(CONF_OPENSUBTITLES_API_KEY) or "").strip(),
+        (data.get(CONF_OPENSUBTITLES_USERNAME) or "").strip(),
+        data.get(CONF_OPENSUBTITLES_PASSWORD) or "",
+    )
 
 
 def _resolve_is_windows(entry: ConfigEntry) -> bool:
@@ -213,6 +236,44 @@ def _detect_episode(name: str) -> str:
     episode_nums = [int(n) for n in _EPISODE_NUM_RE.findall(match.group(2))]
     episodes = "".join(f"E{n:02d}" for n in episode_nums)
     return f"S{season_num:02d}{episodes}"
+
+
+def _subtitle_search_params(category: str, season: str, token_type: str, file_rel_path: str, clean_title: str) -> dict | None:
+    """Builds the structured OpenSubtitles search parameters from data we
+    already know to be correct — never anything guessed or looked up.
+    Movies use the title+year already embedded in clean_title ("Title
+    (Year)"); TV uses the show name plus season/episode numbers, with
+    "complete" packs deriving season from the file's own (already
+    normalized) parent folder rather than the record's season field, which
+    is only populated for the single-season token types."""
+    if not category:
+        m = re.match(r"^(.*?)\s*\((\d{4})\)\s*$", clean_title or "")
+        if not m:
+            return None
+        return {"query": m.group(1), "year": int(m.group(2))}
+
+    episode_code = _detect_episode(os.path.basename(file_rel_path))
+    if not episode_code:
+        return None
+    episode_nums = _EPISODE_NUM_RE.findall(episode_code)
+    if not episode_nums:
+        return None
+
+    if token_type == "complete":
+        parent_leaf = file_rel_path.rsplit("/", 1)[0].rsplit("/", 1)[-1] if "/" in file_rel_path else ""
+        season_str = _detect_season(parent_leaf)
+    else:
+        season_str = season
+
+    season_digits = re.sub(r"\D", "", season_str or "")
+    if not season_digits:
+        return None
+
+    return {
+        "query": category,
+        "season_number": int(season_digits),
+        "episode_number": int(episode_nums[0]),
+    }
 
 
 def _file_in_season_folder(path: str) -> bool:
@@ -655,6 +716,9 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
     nas_username = _resolve_nas_username(entry)
     nas_password = _resolve_nas_password(entry)
     retain_languages = _resolve_retain_languages(entry)
+    retain_subtitle_languages = _resolve_retain_subtitle_languages(entry)
+    os_api_key, os_username, os_password = _resolve_opensubtitles_config(entry)
+    os_state = {"token": None, "attempted": False}
     is_windows = _resolve_is_windows(entry)
     sep = "\\" if is_windows else "/"
 
@@ -700,7 +764,7 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
             continue
 
         tag_set = {tg.strip() for tg in str(t.get("tags") or "").split(",") if tg.strip()}
-        if TAG_REMUXED in tag_set or TAG_REMUX_SKIPPED in tag_set:
+        if TAG_REMUXED in tag_set:
             _LOGGER.warning("[QBIT] remux pass: hash=%s already tagged %s, skipping", torrent_hash, tag_set)
             continue
 
@@ -746,10 +810,9 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
                 continue
 
             all_succeeded = True
-            any_skipped = False
 
             for f in videos:
-                file_name = os.path.basename(f["path"])
+                file_name = os.path.splitext(os.path.basename(f["path"]))[0] + ".mkv"
                 source_path = f"{save_path}{sep}{f['path'].replace('/', sep)}"
                 dest_dir = _remux_dest_dir(
                     tv_shows_path, movie_path, category, token_type, season, f["path"], is_windows,
@@ -761,30 +824,72 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
                     torrent_hash, file_name, source_path, dest_path,
                 )
 
-                video_title = (rec.get("clean_title") or "").strip() if not category else ""
+                clean_title = (rec.get("clean_title") or "").strip()
+                video_title = clean_title if not category else ""
 
-                success, skipped = await remux.remux_file(
-                    conn, mkvmerge_path,
-                    source_path, dest_path, nas_username, nas_password, retain_languages,
-                    is_windows, video_title or None,
-                )
+                identify = await remux.identify_tracks(conn, mkvmerge_path, source_path)
+                if identify is None:
+                    _LOGGER.warning(
+                        "[QBIT] remux pass: hash=%s file=%s identify FAILED — will retry next pass",
+                        torrent_hash, file_name,
+                    )
+                    all_succeeded = False
+                    continue
 
-                if skipped:
-                    if success:
-                        _LOGGER.warning(
-                            "[QBIT] remux pass: hash=%s file=%s SKIPPED (undefined-language track) "
-                            "— copied as-is to %s",
-                            torrent_hash, file_name, dest_path,
-                        )
-                        any_skipped = True
-                    else:
-                        _LOGGER.warning(
-                            "[QBIT] remux pass: hash=%s file=%s SKIPPED but the as-is copy FAILED "
-                            "— will retry next pass",
+                plan = remux.plan_tracks(identify, retain_languages, retain_subtitle_languages)
+
+                subtitle_fetches = []
+                if plan["missing_subtitle_langs"] and os_api_key and os_username and os_password:
+                    if os_state["token"] is None and not os_state["attempted"]:
+                        os_state["attempted"] = True
+                        os_state["token"] = await opensubtitles.login(session, os_api_key, os_username, os_password)
+                        if os_state["token"] is None:
+                            _LOGGER.warning(
+                                "[QBIT] remux pass: OpenSubtitles login failed — skipping subtitle fetch this pass",
+                            )
+
+                    search_params = _subtitle_search_params(category, season, token_type, f["path"], clean_title)
+                    if os_state["token"] and search_params:
+                        for lang_code in plan["missing_subtitle_langs"]:
+                            lang2 = _LANG_CODE2_BY_CODE.get(lang_code, lang_code)
+                            attrs = await opensubtitles.search(
+                                session, os_api_key, os_state["token"], language=lang2, **search_params,
+                            )
+                            files_found = (attrs or {}).get("files") or []
+                            file_id = files_found[0].get("file_id") if files_found else None
+                            if not file_id:
+                                _LOGGER.debug(
+                                    "[QBIT] remux pass: no OpenSubtitles match lang=%s params=%s",
+                                    lang_code, search_params,
+                                )
+                                continue
+                            url = await opensubtitles.request_download(
+                                session, os_api_key, os_state["token"], file_id,
+                            )
+                            if not url:
+                                continue
+                            label = _LANG_LABEL_BY_CODE.get(lang_code, lang_code)
+                            subtitle_fetches.append({
+                                "lang": lang_code,
+                                "track_name": remux.injected_subtitle_track_name(label),
+                                "url": url,
+                            })
+                            _LOGGER.warning(
+                                "[QBIT] remux pass: hash=%s fetched subtitle lang=%s for file=%s",
+                                torrent_hash, lang_code, file_name,
+                            )
+                    elif not search_params:
+                        _LOGGER.debug(
+                            "[QBIT] remux pass: hash=%s could not build subtitle search params for file=%s",
                             torrent_hash, file_name,
                         )
-                        all_succeeded = False
-                elif success:
+
+                success = await remux.write_remuxed_file(
+                    conn, mkvmerge_path, source_path, dest_path, identify, plan, video_title or None,
+                    subtitle_fetches, nas_username, nas_password, is_windows,
+                )
+
+                if success:
                     _LOGGER.warning(
                         "[QBIT] remux pass: hash=%s file=%s SUCCEEDED -> %s",
                         torrent_hash, file_name, dest_path,
@@ -796,12 +901,7 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
                     )
                     all_succeeded = False
 
-            if any_skipped:
-                await _add_tags(session, base, torrent_hash, TAG_REMUX_SKIPPED)
-                _LOGGER.warning("[QBIT] remux pass: hash=%s tagged %r", torrent_hash, TAG_REMUX_SKIPPED)
-                store.torrents.pop(torrent_hash, None)
-                changed = True
-            elif all_succeeded:
+            if all_succeeded:
                 await _add_tags(session, base, torrent_hash, TAG_REMUXED)
                 _LOGGER.warning("[QBIT] remux pass: hash=%s all files remuxed, tagged %r", torrent_hash, TAG_REMUXED)
                 store.torrents.pop(torrent_hash, None)

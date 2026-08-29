@@ -43,6 +43,20 @@ CONF_NAS_PASSWORD = "nas_password"
 CONF_RETAIN_LANGUAGES = "retain_languages"
 DEFAULT_RETAIN_LANGUAGES = ["eng"]
 
+# Separate selector for subtitles — independent from audio retention, since
+# a user may want e.g. English+Spanish audio kept but only English subs.
+# Only tracks matching this list are kept, with no undefined-language
+# exception (unlike audio, where an undefined track is always retained).
+CONF_RETAIN_SUBTITLE_LANGUAGES = "retain_subtitle_languages"
+DEFAULT_RETAIN_SUBTITLE_LANGUAGES = ["eng"]
+
+# OpenSubtitles.com — optional. Feature is only active once an API key,
+# account login, and at least one subtitle-retention language are all
+# configured; any missing piece just leaves subtitle fetching disabled.
+CONF_OPENSUBTITLES_API_KEY = "opensubtitles_api_key"
+CONF_OPENSUBTITLES_USERNAME = "opensubtitles_username"
+CONF_OPENSUBTITLES_PASSWORD = "opensubtitles_password"
+
 LANGUAGE_CHOICES = [
     {"code": "eng", "code2": "en", "label": "English"},
     {"code": "spa", "code2": "es", "label": "Spanish"},
@@ -75,9 +89,8 @@ LANGUAGE_CHOICES = [
     {"code": "may", "code2": "ms", "label": "Malay"},
 ]
 
-# qBittorrent tags used to mark remux outcome
+# qBittorrent tag used to mark remux outcome
 TAG_REMUXED = "Remuxed"
-TAG_REMUX_SKIPPED = "Remux skipped - language undefined"
 
 # Persistent per-torrent record storage
 STORAGE_VERSION = 1

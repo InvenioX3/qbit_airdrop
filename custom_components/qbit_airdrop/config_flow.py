@@ -22,12 +22,18 @@ from .const import (
     CONF_NAS_PASSWORD,
     CONF_RETAIN_LANGUAGES,
     DEFAULT_RETAIN_LANGUAGES,
+    CONF_RETAIN_SUBTITLE_LANGUAGES,
+    DEFAULT_RETAIN_SUBTITLE_LANGUAGES,
     LANGUAGE_CHOICES,
     CONF_MKVMERGE_HOST_OS,
     DEFAULT_MKVMERGE_HOST_OS,
     MKVMERGE_HOST_OS_CHOICES,
+    CONF_OPENSUBTITLES_API_KEY,
+    CONF_OPENSUBTITLES_USERNAME,
+    CONF_OPENSUBTITLES_PASSWORD,
 )
 from .util import base_from_data
+from . import opensubtitles
 
 
 def _build_schema(defaults: dict) -> vol.Schema:
@@ -71,6 +77,26 @@ def _build_schema(defaults: dict) -> vol.Schema:
                 mode=selector.SelectSelectorMode.DROPDOWN,
             )
         ),
+        vol.Optional(
+            CONF_RETAIN_SUBTITLE_LANGUAGES,
+            default=defaults.get(CONF_RETAIN_SUBTITLE_LANGUAGES, DEFAULT_RETAIN_SUBTITLE_LANGUAGES),
+        ): selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=[
+                    selector.SelectOptionDict(value=c["code"], label=c["label"])
+                    for c in LANGUAGE_CHOICES
+                ],
+                multiple=True,
+                mode=selector.SelectSelectorMode.DROPDOWN,
+            )
+        ),
+        vol.Optional(CONF_OPENSUBTITLES_API_KEY, default=defaults.get(CONF_OPENSUBTITLES_API_KEY, "")): str,
+        vol.Optional(CONF_OPENSUBTITLES_USERNAME, default=defaults.get(CONF_OPENSUBTITLES_USERNAME, "")): str,
+        vol.Optional(
+            CONF_OPENSUBTITLES_PASSWORD, default=defaults.get(CONF_OPENSUBTITLES_PASSWORD, "")
+        ): selector.TextSelector(
+            selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+        ),
     })
 
 
@@ -96,7 +122,28 @@ def _normalize_input(user_input: dict) -> dict | None:
     normalized[CONF_RETAIN_LANGUAGES] = list(user_input.get(CONF_RETAIN_LANGUAGES) or []) or list(
         DEFAULT_RETAIN_LANGUAGES
     )
+    normalized[CONF_RETAIN_SUBTITLE_LANGUAGES] = list(
+        user_input.get(CONF_RETAIN_SUBTITLE_LANGUAGES) or []
+    ) or list(DEFAULT_RETAIN_SUBTITLE_LANGUAGES)
+    normalized[CONF_OPENSUBTITLES_API_KEY] = (user_input.get(CONF_OPENSUBTITLES_API_KEY) or "").strip()
+    normalized[CONF_OPENSUBTITLES_USERNAME] = (user_input.get(CONF_OPENSUBTITLES_USERNAME) or "").strip()
+    normalized[CONF_OPENSUBTITLES_PASSWORD] = user_input.get(CONF_OPENSUBTITLES_PASSWORD) or ""
     return normalized
+
+
+async def _can_login_opensubtitles(hass, data: dict) -> bool:
+    """OpenSubtitles is entirely optional — only validated if all three
+    fields are actually filled in; leaving them blank just disables
+    subtitle fetching rather than blocking setup."""
+    api_key = data.get(CONF_OPENSUBTITLES_API_KEY)
+    username = data.get(CONF_OPENSUBTITLES_USERNAME)
+    password = data.get(CONF_OPENSUBTITLES_PASSWORD)
+    if not (api_key and username and password):
+        return True
+
+    session = async_get_clientsession(hass)
+    token = await opensubtitles.login(session, api_key, username, password)
+    return token is not None
 
 
 async def _can_connect(hass, data: dict) -> bool:
@@ -123,6 +170,8 @@ class QbitAirdropConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "invalid_host_port"
             elif not await _can_connect(self.hass, normalized):
                 errors["base"] = "cannot_connect"
+            elif not await _can_login_opensubtitles(self.hass, normalized):
+                errors["base"] = "opensubtitles_login_failed"
             else:
                 return self.async_create_entry(title="Qbit Airdrop", data=normalized)
 
@@ -148,6 +197,8 @@ class QbitAirdropOptionsFlow(config_entries.OptionsFlow):
                 errors["base"] = "invalid_host_port"
             elif not await _can_connect(self.hass, normalized):
                 errors["base"] = "cannot_connect"
+            elif not await _can_login_opensubtitles(self.hass, normalized):
+                errors["base"] = "opensubtitles_login_failed"
             else:
                 return self.async_create_entry(title="", data=normalized)
 
