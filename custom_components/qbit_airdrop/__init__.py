@@ -75,6 +75,10 @@ _SUBTITLE_EXT_RE = re.compile(r"\.(srt|ass)", re.I)
 _LANG_CODE2_BY_CODE = {c["code"]: c["code2"] for c in LANGUAGE_CHOICES}
 _LANG_CODE3_BY_CODE2 = {c["code2"]: c["code"] for c in LANGUAGE_CHOICES}
 _LANG_CODE_SET = set(_LANG_CODE2_BY_CODE) | set(_LANG_CODE3_BY_CODE2)
+# Subtitle filenames sometimes spell the language out ("2_English.srt")
+# rather than use a short code — matched separately since these are whole
+# words, not codes that happen to also appear as filename segments.
+_LANG_CODE_BY_LABEL = {c["label"].lower(): c["code"] for c in LANGUAGE_CHOICES}
 
 
 def _resolve_base_path(entry: ConfigEntry) -> str:
@@ -292,25 +296,44 @@ def _is_subtitle_file(path: str) -> bool:
 
 
 def _detect_filename_language(basename: str) -> str:
-    """Looks for a known language code as its own delimited segment in a
-    subtitle's filename (e.g. "...EDGE2020.eng.srt" -> "eng",
-    "...AppleTor.en.srt[eztv.re]" -> "eng"). Falls back to English when
-    nothing recognizable is found, same as the assumption used elsewhere
-    when a track's language can't be determined."""
+    """Looks for a known language code, or the full spelled-out language
+    name, as its own delimited segment in a subtitle's filename (e.g.
+    "...EDGE2020.eng.srt" -> "eng", "...en.srt[eztv.re]" -> "eng",
+    "2_English.srt" -> "eng"). Falls back to English when nothing
+    recognizable is found, same as the assumption used elsewhere when a
+    track's language can't be determined."""
     segments = re.split(r"[.\s_\[\]()-]+", basename.lower())
     for seg in segments:
         if seg in _LANG_CODE_SET:
             return _LANG_CODE3_BY_CODE2.get(seg, seg)
+        if seg in _LANG_CODE_BY_LABEL:
+            return _LANG_CODE_BY_LABEL[seg]
     return "eng"
+
+
+def _subtitle_episode_code(sub_rel_path: str) -> str:
+    """The subtitle's own filename usually carries the episode code
+    directly, but some releases instead use a generic/numbered subtitle
+    filename (e.g. "2_English.srt") inside a folder named after the video
+    it belongs to — falls back to the immediate parent folder's name when
+    the filename itself yields nothing."""
+    episode = _detect_episode(os.path.basename(sub_rel_path))
+    if episode:
+        return episode
+    if "/" in sub_rel_path:
+        parent_leaf = sub_rel_path.rsplit("/", 1)[0].rsplit("/", 1)[-1]
+        return _detect_episode(parent_leaf)
+    return ""
 
 
 def _find_external_subtitles(index_files: list[dict], video_rel_path: str, category: str) -> list[dict]:
     """.srt/.ass files already present in the torrent that belong to this
     specific video — matched by episode code for TV (the same
     _detect_episode used for renaming, so it's just as tolerant of odd
-    filenames), or any subtitle present at all for movies, since a movie
-    torrent is effectively always a single video file with nothing else it
-    could belong to."""
+    filenames, checking the subtitle's parent folder too when its own
+    filename doesn't carry the code), or any subtitle present at all for
+    movies, since a movie torrent is effectively always a single video file
+    with nothing else it could belong to."""
     candidates = [f for f in index_files if _is_subtitle_file(f["path"])]
     if not candidates:
         return []
@@ -322,7 +345,7 @@ def _find_external_subtitles(index_files: list[dict], video_rel_path: str, categ
     if not video_episode:
         return []
 
-    return [f for f in candidates if _detect_episode(os.path.basename(f["path"])) == video_episode]
+    return [f for f in candidates if _subtitle_episode_code(f["path"]) == video_episode]
 
 
 def _file_in_season_folder(path: str) -> bool:
