@@ -236,6 +236,50 @@ class QbitAirdropSshKeyView(HomeAssistantView):
         return web.json_response({"ok": True, "public_key": public_key})
 
 
+class QbitAirdropFilesView(HomeAssistantView):
+    """Flat list of a torrent's actual file names — no directory/subfolder
+    structure — for the card's file-list overlay."""
+    url = "/api/qbit_airdrop/files"
+    name = "qbit_airdrop:files"
+    requires_auth = True
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self.entry = entry
+
+    async def get(self, request) -> web.Response:
+        thash = (request.query.get("hash") or "").strip().lower()
+        if not thash:
+            return web.json_response({"ok": False, "error": "hash required"}, status=400)
+
+        (base,) = _resolve_base(self.entry)
+        if not base:
+            return web.json_response({"ok": False, "error": "qB base not configured"}, status=400)
+
+        session = async_get_clientsession(self.hass)
+        try:
+            async with session.get(
+                f"{base}/api/v2/torrents/files",
+                params={"hash": thash},
+                timeout=15,
+            ) as resp:
+                if resp.status != 200:
+                    return web.json_response({"ok": False, "error": "Fetch failed"}, status=resp.status)
+                files_raw = await resp.json(content_type=None)
+        except ClientError as err:
+            _LOGGER.error("qB request error: %s", err)
+            return web.json_response({"ok": False, "error": "Request error"}, status=502)
+
+        names = []
+        if isinstance(files_raw, list):
+            for entry_obj in files_raw:
+                path = str(entry_obj.get("name") or "")
+                if path:
+                    names.append(path.rsplit("/", 1)[-1])
+
+        return web.json_response({"ok": True, "files": sorted(names)})
+
+
 class QbitAirdropForceStartView(HomeAssistantView):
     url = "/api/qbit_airdrop/force_start"
     name = "qbit_airdrop:force_start"

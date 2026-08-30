@@ -1070,6 +1070,7 @@ async def async_setup_entry(
         QbitAirdropForceStartView,
         QbitAirdropStatsView,
         QbitAirdropSshKeyView,
+        QbitAirdropFilesView,
     )
 
     hass.http.register_view(
@@ -1102,6 +1103,13 @@ async def async_setup_entry(
 
     hass.http.register_view(
         QbitAirdropSshKeyView(
+            hass,
+            entry,
+        )
+    )
+
+    hass.http.register_view(
+        QbitAirdropFilesView(
             hass,
             entry,
         )
