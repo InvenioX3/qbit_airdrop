@@ -42,7 +42,7 @@ from .const import (
     TAG_REMUXED,
 )
 from .store import TorrentStore
-from .util import resolve_base as _resolve_base
+from .util import is_bluray_structure, resolve_base as _resolve_base
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -359,17 +359,6 @@ def _root_folder(folders: list[str]) -> str:
     return next((f for f in folders if "/" not in f), "")
 
 
-_BLURAY_MARKERS = {"bdmv", "!any", "certificate"}
-
-
-def _is_bluray_structure(folders: list[str]) -> bool:
-    for folder in folders:
-        for segment in folder.split("/"):
-            if segment.strip().lower() in _BLURAY_MARKERS:
-                return True
-    return False
-
-
 def _is_due(meta: dict, now) -> bool:
     added_at = meta.get("added_at")
     if added_at is None:
@@ -577,7 +566,6 @@ async def _apply_file_priorities(session, base, torrent_hash, files, keep_ids) -
 
 async def _rename_single_file_target(
     session, base, torrent_hash, files, largest, root_folder, file_rel_name,
-    force_keep_all=False,
 ) -> bool:
     """Movie and single-episode ("se") torrents both boil down to: rename the
     one video file to file_rel_name, relative to the torrent's own root —
@@ -597,10 +585,7 @@ async def _rename_single_file_target(
         ok &= await _rename_file(session, base, torrent_hash, largest["path"], new_path)
 
     subtitle_ids = {f["id"] for f in files if _is_subtitle_file(f["path"])}
-    keep_ids = (
-        {f["id"] for f in files} if force_keep_all
-        else ({largest["id"]} if largest else set()) | subtitle_ids
-    )
+    keep_ids = ({largest["id"]} if largest else set()) | subtitle_ids
     ok &= await _apply_file_priorities(session, base, torrent_hash, files, keep_ids)
 
     return ok
@@ -621,9 +606,9 @@ async def _process_queue_item(session, base, torrent_hash, meta, index) -> tuple
     simply overwrites the earlier one's output once the remux pass reaches
     the shared final destination, which is the desired behavior.
 
-    Returns (done, needs_remux); needs_remux is False only for an
-    unrecognized token type, where there's nothing for a later remux pass
-    to do."""
+    Returns (done, needs_remux); needs_remux is False for an unrecognized
+    token type or a Blu-ray disc structure, where there's nothing for a
+    later remux pass to do."""
     token_type = meta["token_type"]
     category = meta["category"]
     season = meta["season"]
@@ -635,13 +620,28 @@ async def _process_queue_item(session, base, torrent_hash, meta, index) -> tuple
 
     videos = [f for f in files if _is_video(f["path"])]
     largest = max(videos, key=lambda f: f["size"]) if videos else None
-    is_bluray = _is_bluray_structure(folders)
+    is_bluray = is_bluray_structure(folders)
 
     _LOGGER.debug(
         "[QBIT] process hash=%s token_type=%r category=%r videos=%s largest=%r root_folder=%r is_bluray=%s",
         torrent_hash, token_type, category, len(videos),
         largest["path"] if largest else None, root_folder, is_bluray,
     )
+
+    if is_bluray:
+        # Raw Blu-ray disc dump (BDMV/STREAM structure) — the individual
+        # stream files don't carry episode/title info of their own, and
+        # discs vary too much to classify without running the actual index
+        # through mkvmerge, which isn't possible until the whole thing has
+        # downloaded. Treated as a single opaque unit: keep every file,
+        # rename nothing, and skip remux entirely — left for manual review.
+        ok = await _apply_file_priorities(session, base, torrent_hash, files, {f["id"] for f in files})
+        ok &= await _start_torrent(session, base, torrent_hash)
+        _LOGGER.warning(
+            "[QBIT] hash=%s is a Blu-ray disc structure — keeping all files untouched, skipping rename/remux",
+            torrent_hash,
+        )
+        return ok, False
 
     ok = True
 
@@ -650,7 +650,7 @@ async def _process_queue_item(session, base, torrent_hash, meta, index) -> tuple
         # all). Stays flat within the untouched root — no subfolder needed.
         ok &= await _rename_single_file_target(
             session, base, torrent_hash, files, largest, root_folder,
-            rename_name, force_keep_all=is_bluray,
+            rename_name,
         )
 
     elif token_type == "se":
@@ -658,7 +658,7 @@ async def _process_queue_item(session, base, torrent_hash, meta, index) -> tuple
         # torrent's own untouched root.
         ok &= await _rename_single_file_target(
             session, base, torrent_hash, files, largest, root_folder,
-            f"{season}/{rename_name}", force_keep_all=is_bluray,
+            f"{season}/{rename_name}",
         )
 
     elif token_type in ("s", "season"):
@@ -666,14 +666,11 @@ async def _process_queue_item(session, base, torrent_hash, meta, index) -> tuple
         # season subfolder within the untouched root, regardless of
         # whatever folder structure it originally shipped in.
         subtitle_ids = {f["id"] for f in files if _is_subtitle_file(f["path"])}
-        keep_ids = (
-            {f["id"] for f in files} if is_bluray
-            else {
-                f["id"] for f in videos
-                if _file_in_season_folder(f["path"])
-                and _detect_episode(os.path.basename(f["path"]))
-            } | subtitle_ids
-        )
+        keep_ids = {
+            f["id"] for f in videos
+            if _file_in_season_folder(f["path"])
+            and _detect_episode(os.path.basename(f["path"]))
+        } | subtitle_ids
 
         for f in videos:
             if f["id"] not in keep_ids:
@@ -694,14 +691,11 @@ async def _process_queue_item(session, base, torrent_hash, meta, index) -> tuple
         # nested season subfolder (normalized below), which the remux pass
         # reads directly off each file's parent folder.
         subtitle_ids = {f["id"] for f in files if _is_subtitle_file(f["path"])}
-        keep_ids = (
-            {f["id"] for f in files} if is_bluray
-            else {
-                f["id"] for f in videos
-                if _file_in_season_folder(f["path"])
-                and _detect_episode(os.path.basename(f["path"]))
-            } | subtitle_ids
-        )
+        keep_ids = {
+            f["id"] for f in videos
+            if _file_in_season_folder(f["path"])
+            and _detect_episode(os.path.basename(f["path"]))
+        } | subtitle_ids
 
         for f in videos:
             if f["id"] not in keep_ids:
@@ -1330,7 +1324,7 @@ async def async_setup_entry(
                     )
                 else:
                     _LOGGER.warning(
-                        "[QBIT] hash=%s done, no remux needed (unrecognized token type) — dropped from tracking",
+                        "[QBIT] hash=%s done, no remux needed (unrecognized token type or Blu-ray disc) — dropped from tracking",
                         torrent_hash,
                     )
                     store.torrents.pop(torrent_hash, None)

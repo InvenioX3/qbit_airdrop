@@ -13,7 +13,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from . import remux
 from .const import DOMAIN
-from .util import resolve_base as _resolve_base
+from .util import is_bluray_structure, resolve_base as _resolve_base
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -271,13 +271,22 @@ class QbitAirdropFilesView(HomeAssistantView):
             return web.json_response({"ok": False, "error": "Request error"}, status=502)
 
         names = []
+        folders = set()
         if isinstance(files_raw, list):
             for entry_obj in files_raw:
                 path = str(entry_obj.get("name") or "")
-                if path:
-                    names.append(path.rsplit("/", 1)[-1])
+                if not path:
+                    continue
+                names.append(path.rsplit("/", 1)[-1])
+                parts = path.split("/")[:-1]
+                for i in range(1, len(parts) + 1):
+                    folders.add("/".join(parts[:i]))
 
-        return web.json_response({"ok": True, "files": sorted(names)})
+        return web.json_response({
+            "ok": True,
+            "files": sorted(names),
+            "is_bluray": is_bluray_structure(folders),
+        })
 
 
 class QbitAirdropForceStartView(HomeAssistantView):

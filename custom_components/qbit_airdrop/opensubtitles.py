@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -66,6 +67,30 @@ async def login(session, username: str, password: str) -> str | None:
         return None
 
 
+def _normalize_title(text: str | None) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
+
+
+def _titles_plausibly_match(query: str, candidate: str | None) -> bool:
+    """Confirmed live (2026-08-30): OpenSubtitles' year/season/episode_number
+    params do filter correctly, but the free-text query does not — sorting
+    by download_count can return a top "match" for the right year with a
+    completely unrelated title (a popular anime subtitle surfaced for a
+    "The Mongoose" search that shares only the year). This is the gate that
+    catches that: the returned result's own title has to actually resemble
+    what was searched for before it's trusted."""
+    q = _normalize_title(query)
+    c = _normalize_title(candidate)
+    if not q or not c:
+        return False
+    if q in c or c in q:
+        return True
+    q_words = set(q.split())
+    if not q_words:
+        return False
+    return len(q_words & set(c.split())) / len(q_words) >= 0.6
+
+
 async def search(
     session,
     token: str,
@@ -77,15 +102,18 @@ async def search(
     episode_number: int | None = None,
 ) -> dict | None:
     """Searches by title (plus year for movies, or show+season/episode for
-    TV) and the target subtitle language, sorted by download count so the
-    most community-validated result is used. Returns the top match's raw
-    attributes dict (including "files", needed for request_download), or
-    None if nothing matched.
+    TV) and the target subtitle language, sorted by download count. Returns
+    the highest-download-count result whose own reported title plausibly
+    matches the query (see _titles_plausibly_match), including "files"
+    needed for request_download — or None if nothing matched well enough.
 
-    Uses OpenSubtitles' own structured filter parameters (year,
-    season_number, episode_number) rather than folding everything into the
-    free-text query — those are documented as exact filters, not subject to
-    the kind of query relaxation a plain text search can do."""
+    year/season_number/episode_number are real filters (confirmed live —
+    every result for a given year search actually carries that year), but
+    the free-text query is NOT — OpenSubtitles will return an unrelated top
+    result sorted purely by popularity if the query itself doesn't
+    meaningfully narrow things down, so the query has to be validated
+    against each candidate's own metadata after the fact rather than
+    trusted as a filter."""
     params = {
         "query": query,
         "languages": language,
@@ -132,9 +160,26 @@ async def search(
     if not results:
         return None
 
-    top = results[0]
-    _LOGGER.warning("[QBIT] opensubtitles: top match attributes=%s", top.get("attributes"))
-    return top.get("attributes")
+    for candidate in results:
+        attrs = candidate.get("attributes") or {}
+        feature = attrs.get("feature_details") or {}
+        candidate_title = feature.get("title") or feature.get("parent_title") or feature.get("movie_name") or ""
+        if _titles_plausibly_match(query, candidate_title) or _titles_plausibly_match(query, feature.get("parent_title")):
+            _LOGGER.warning(
+                "[QBIT] opensubtitles: matched query=%r against candidate_title=%r attributes=%s",
+                query, candidate_title, attrs,
+            )
+            return attrs
+        _LOGGER.warning(
+            "[QBIT] opensubtitles: rejected candidate — query=%r does not match candidate_title=%r (subtitle_id=%s)",
+            query, candidate_title, attrs.get("subtitle_id"),
+        )
+
+    _LOGGER.warning(
+        "[QBIT] opensubtitles: none of %d result(s) had a title matching query=%r — treating as not found",
+        len(results), query,
+    )
+    return None
 
 
 async def request_download(session, token: str, file_id: int) -> str | None:
