@@ -277,10 +277,14 @@ class QbitAirdropFilesView(HomeAssistantView):
                 path = str(entry_obj.get("name") or "")
                 if not path:
                     continue
-                names.append(path.rsplit("/", 1)[-1])
                 parts = path.split("/")[:-1]
                 for i in range(1, len(parts) + 1):
                     folders.add("/".join(parts[:i]))
+                # Only files actually selected for download (priority != 0) —
+                # same signal the remux pass itself uses to mean "kept" — so
+                # deselected extras/samples don't clutter the list.
+                if entry_obj.get("priority") != 0:
+                    names.append(path.rsplit("/", 1)[-1])
 
         return web.json_response({
             "ok": True,
