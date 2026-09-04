@@ -929,26 +929,36 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
 
                 if still_missing_langs:
                     external_subs = _find_external_subtitles(index["files"], f["path"], category)
-                    external_by_lang = {}
+                    external_by_lang: dict[str, list[dict]] = {}
                     for sub_f in external_subs:
                         lang = _detect_filename_language(os.path.basename(sub_f["path"]))
-                        external_by_lang.setdefault(lang, sub_f)
+                        external_by_lang.setdefault(lang, []).append(sub_f)
 
                     for lang_code in list(still_missing_langs):
-                        sub_f = external_by_lang.get(lang_code)
-                        if not sub_f:
+                        matches = external_by_lang.get(lang_code)
+                        if not matches:
                             continue
-                        sub_source_path = f"{save_path}{sep}{sub_f['path'].replace('/', sep)}"
-                        subtitle_fetches.append({
-                            "lang": lang_code,
-                            "track_name": remux.injected_subtitle_track_name("torrent"),
-                            "remote_path": sub_source_path,
-                        })
+                        # Multiple torrent-provided files can resolve to the same
+                        # language (e.g. differently-numbered .srt files inside a
+                        # per-episode folder) — all of them get injected rather
+                        # than silently picking one, distinguished by a numbered
+                        # suffix on the track name when there's more than one.
+                        multiple = len(matches) > 1
+                        for i, sub_f in enumerate(matches, start=1):
+                            sub_source_path = f"{save_path}{sep}{sub_f['path'].replace('/', sep)}"
+                            track_name = remux.injected_subtitle_track_name("torrent")
+                            if multiple:
+                                track_name = f"{track_name} #{i}"
+                            subtitle_fetches.append({
+                                "lang": lang_code,
+                                "track_name": track_name,
+                                "remote_path": sub_source_path,
+                            })
+                            _LOGGER.warning(
+                                "[QBIT] remux pass: hash=%s using torrent-provided subtitle lang=%s for file=%s (%s)",
+                                torrent_hash, lang_code, file_name, sub_f["path"],
+                            )
                         still_missing_langs.remove(lang_code)
-                        _LOGGER.warning(
-                            "[QBIT] remux pass: hash=%s using torrent-provided subtitle lang=%s for file=%s (%s)",
-                            torrent_hash, lang_code, file_name, sub_f["path"],
-                        )
 
                 if still_missing_langs and os_username and os_password and not subtitles_paused:
                     if os_state["token"] is None and not os_state["attempted"]:

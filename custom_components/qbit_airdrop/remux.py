@@ -100,9 +100,14 @@ def plan_tracks(
     language gets stripped. If nothing is configured-language anywhere,
     audio is left fully untouched (the Korean/Chinese-only-audio case).
 
-    Subtitles: kept only if they match the (separate) subtitle-retention
-    list — no undefined-language exception here, unlike audio. Anything
-    else, including undefined-language subtitles, gets stripped.
+    Subtitles: kept if they match the (separate) subtitle-retention list,
+    unioned with every undefined-language track — same rule as audio, an
+    unlabeled subtitle is always kept rather than assumed irrelevant. Only a
+    track confidently tagged as some other, non-configured language gets
+    stripped. An undefined track does NOT count toward
+    missing_subtitle_langs, though — its actual language is unverified, so a
+    configured language still gets fetched/injected unless a track is
+    explicitly tagged with it.
 
     Returns {
       "audio_keep_ids": list[int] | None,   # None means keep everything
@@ -125,7 +130,9 @@ def plan_tracks(
     else:
         audio_keep_ids = None
 
-    subtitle_keep_ids = [t["id"] for t in subtitles if _track_lang(t) in retained_subs]
+    retained_subtitle_ids = [t["id"] for t in subtitles if _track_lang(t) in retained_subs]
+    undefined_subtitle_ids = [t["id"] for t in subtitles if _is_undefined(_track_lang(t))]
+    subtitle_keep_ids = sorted(set(retained_subtitle_ids) | set(undefined_subtitle_ids))
 
     missing_subtitle_langs = []
     for code in (retain_subtitle_codes or DEFAULT_RETAIN_SUBTITLE_LANGUAGES):
