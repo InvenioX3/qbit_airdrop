@@ -13,7 +13,14 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from . import remux
 from .const import DOMAIN
-from .util import is_bluray_structure, resolve_base as _resolve_base
+from .util import (
+    detect_episode,
+    is_bluray_structure,
+    is_subtitle_file,
+    is_video,
+    resolve_base as _resolve_base,
+    subtitle_episode_code,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -237,8 +244,11 @@ class QbitAirdropSshKeyView(HomeAssistantView):
 
 
 class QbitAirdropFilesView(HomeAssistantView):
-    """Flat list of a torrent's actual file names — no directory/subfolder
-    structure — for the card's file-list overlay."""
+    """A torrent's actual (selected-for-download) file names — no directory/
+    subfolder structure — for the card's file-list overlay. Subtitle files
+    are nested under the video they belong to (by episode code, or under the
+    single video for a movie torrent) rather than listed flat, so the card
+    can render them indented underneath their file."""
     url = "/api/qbit_airdrop/files"
     name = "qbit_airdrop:files"
     requires_auth = True
@@ -270,7 +280,7 @@ class QbitAirdropFilesView(HomeAssistantView):
             _LOGGER.error("qB request error: %s", err)
             return web.json_response({"ok": False, "error": "Request error"}, status=502)
 
-        names = []
+        entries = []
         folders = set()
         if isinstance(files_raw, list):
             for entry_obj in files_raw:
@@ -284,11 +294,43 @@ class QbitAirdropFilesView(HomeAssistantView):
                 # same signal the remux pass itself uses to mean "kept" — so
                 # deselected extras/samples don't clutter the list.
                 if entry_obj.get("priority") != 0:
-                    names.append(path.rsplit("/", 1)[-1])
+                    entries.append({"path": path, "name": path.rsplit("/", 1)[-1]})
+
+        videos = [e for e in entries if is_video(e["path"])]
+        subtitles = [e for e in entries if is_subtitle_file(e["path"])]
+        video_or_sub_paths = {e["path"] for e in videos} | {e["path"] for e in subtitles}
+        others = [e for e in entries if e["path"] not in video_or_sub_paths]
+
+        groups = []
+        unmatched_subtitles = list(subtitles)
+
+        if len(videos) == 1:
+            # A movie torrent is effectively always one video with nothing
+            # else it could belong to — same assumption used at remux time.
+            groups.append({"name": videos[0]["name"], "subtitles": sorted(s["name"] for s in subtitles)})
+            unmatched_subtitles = []
+        else:
+            for v in videos:
+                v_episode = detect_episode(v["name"])
+                matched = (
+                    [s for s in unmatched_subtitles if subtitle_episode_code(s["path"]) == v_episode]
+                    if v_episode else []
+                )
+                for m in matched:
+                    unmatched_subtitles.remove(m)
+                groups.append({"name": v["name"], "subtitles": sorted(m["name"] for m in matched)})
+
+        # Anything that never matched a video — a subtitle with no
+        # recognizable episode code, or any other selected file type —
+        # still shows up, just as its own standalone entry.
+        for leftover in unmatched_subtitles + others:
+            groups.append({"name": leftover["name"], "subtitles": []})
+
+        groups.sort(key=lambda g: g["name"].lower())
 
         return web.json_response({
             "ok": True,
-            "files": sorted(names),
+            "files": groups,
             "is_bluray": is_bluray_structure(folders),
         })
 

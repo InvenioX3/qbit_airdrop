@@ -42,7 +42,15 @@ from .const import (
     TAG_REMUXED,
 )
 from .store import TorrentStore
-from .util import is_bluray_structure, resolve_base as _resolve_base
+from .util import (
+    EPISODE_NUM_RE as _EPISODE_NUM_RE,
+    detect_episode as _detect_episode,
+    is_bluray_structure,
+    is_subtitle_file as _is_subtitle_file,
+    is_video as _is_video,
+    resolve_base as _resolve_base,
+    subtitle_episode_code as _subtitle_episode_code,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -59,18 +67,6 @@ _INVALID_PATH_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 _SEASON_TOKEN_RE = re.compile(r"\bS(\d{1,2})\b(?!-\d)", re.I)
 _SEASON_WORD_RE = re.compile(r"\bSeason\s*(\d{1,2})\b", re.I)
-_EPISODE_TOKEN_RE = re.compile(r"\bS(\d{1,2})[.\s_-]?((?:E\d{1,3})+)\b", re.I)
-_EPISODE_NUM_RE = re.compile(r"E(\d{1,3})", re.I)
-
-_VIDEO_EXTS = {
-    ".mkv", ".mp4", ".avi", ".m4v", ".mov", ".ts", ".m2ts", ".wmv", ".iso",
-}
-
-# Substring search rather than a strict suffix check — real-world releases
-# sometimes append tracker-signature junk after the true extension (e.g.
-# "...en.srt[eztv.re]"), which a plain os.path.splitext would miss entirely.
-# Neither string realistically appears anywhere in a non-subtitle filename.
-_SUBTITLE_EXT_RE = re.compile(r"\.(srt|ass)", re.I)
 
 _LANG_CODE2_BY_CODE = {c["code"]: c["code2"] for c in LANGUAGE_CHOICES}
 _LANG_CODE3_BY_CODE2 = {c["code2"]: c["code"] for c in LANGUAGE_CHOICES}
@@ -232,25 +228,11 @@ def _extract_hash(magnet: str) -> str:
     return ""
 
 
-def _is_video(path: str) -> bool:
-    return os.path.splitext(path)[1].lower() in _VIDEO_EXTS
-
-
 def _detect_season(name: str) -> str:
     match = _SEASON_TOKEN_RE.search(name)
     if not match:
         match = _SEASON_WORD_RE.search(name)
     return f"S{int(match.group(1)):02d}" if match else ""
-
-
-def _detect_episode(name: str) -> str:
-    match = _EPISODE_TOKEN_RE.search(name)
-    if not match:
-        return ""
-    season_num = int(match.group(1))
-    episode_nums = [int(n) for n in _EPISODE_NUM_RE.findall(match.group(2))]
-    episodes = "".join(f"E{n:02d}" for n in episode_nums)
-    return f"S{season_num:02d}{episodes}"
 
 
 def _subtitle_search_params(category: str, season: str, token_type: str, file_rel_path: str, clean_title: str) -> dict | None:
@@ -291,10 +273,6 @@ def _subtitle_search_params(category: str, season: str, token_type: str, file_re
     }
 
 
-def _is_subtitle_file(path: str) -> bool:
-    return bool(_SUBTITLE_EXT_RE.search(path))
-
-
 def _detect_filename_language(basename: str) -> str:
     """Looks for a known language code, or the full spelled-out language
     name, as its own delimited segment in a subtitle's filename (e.g.
@@ -309,21 +287,6 @@ def _detect_filename_language(basename: str) -> str:
         if seg in _LANG_CODE_BY_LABEL:
             return _LANG_CODE_BY_LABEL[seg]
     return "eng"
-
-
-def _subtitle_episode_code(sub_rel_path: str) -> str:
-    """The subtitle's own filename usually carries the episode code
-    directly, but some releases instead use a generic/numbered subtitle
-    filename (e.g. "2_English.srt") inside a folder named after the video
-    it belongs to — falls back to the immediate parent folder's name when
-    the filename itself yields nothing."""
-    episode = _detect_episode(os.path.basename(sub_rel_path))
-    if episode:
-        return episode
-    if "/" in sub_rel_path:
-        parent_leaf = sub_rel_path.rsplit("/", 1)[0].rsplit("/", 1)[-1]
-        return _detect_episode(parent_leaf)
-    return ""
 
 
 def _find_external_subtitles(index_files: list[dict], video_rel_path: str, category: str) -> list[dict]:
