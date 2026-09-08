@@ -264,6 +264,71 @@ def build_remux_command(
     return " ".join(parts)
 
 
+async def copy_bluray_folder(
+    conn,
+    source_dir: str,
+    dest_dir: str,
+    nas_username: str = "",
+    nas_password: str = "",
+    is_windows: bool = True,
+) -> bool:
+    """Copies an entire raw Blu-ray disc folder (BDMV structure, left
+    completely untouched — no mkvmerge involved) to dest_dir. Windows uses
+    robocopy: it auto-creates the destination tree on its own and retries
+    transient failures, but its exit codes are a bitmask where 0-7 all mean
+    "some degree of success" (0 = nothing needed copying, 1 = files copied,
+    2/4 = extra/mismatched files noted, etc.) — only 8+ is an actual
+    failure, a convention easy to get wrong if treated like a normal
+    process exit code. Linux uses a plain recursive cp, mirroring
+    write_remuxed_file's own NAS-auth handling for a UNC destination."""
+    try:
+        if is_windows:
+            nas_host = _unc_host(dest_dir)
+            if nas_host and nas_username:
+                unc_root = f"\\\\{nas_host}\\IPC$"
+                net_use_cmd = f'net use "{unc_root}" /user:{nas_username} {nas_password}'
+                redacted_cmd = f'net use "{unc_root}" /user:{nas_username} ***'
+                _LOGGER.debug("[QBIT] bluray copy: net use command=%s", redacted_cmd)
+                net_use_result = await asyncio.wait_for(
+                    conn.run(net_use_cmd, check=False), timeout=_QUICK_CMD_TIMEOUT,
+                )
+                _LOGGER.warning(
+                    "[QBIT] bluray copy: net use %s exit=%s stdout=%r stderr=%r",
+                    unc_root, net_use_result.exit_status, net_use_result.stdout, net_use_result.stderr,
+                )
+
+            copy_cmd = f'robocopy "{source_dir}" "{dest_dir}" /E /R:2 /W:5'
+        else:
+            mkdir_cmd = f'mkdir -p "{dest_dir}"'
+            await asyncio.wait_for(conn.run(mkdir_cmd, check=False), timeout=_QUICK_CMD_TIMEOUT)
+            copy_cmd = f'cp -r "{source_dir}/." "{dest_dir}"'
+
+        _LOGGER.debug("[QBIT] bluray copy: command=%s", copy_cmd)
+        result = await asyncio.wait_for(
+            conn.run(copy_cmd, check=False), timeout=_REMUX_TIMEOUT,
+        )
+
+        success = (result.exit_status < 8) if is_windows else (result.exit_status == 0)
+        if not success:
+            _LOGGER.warning(
+                "[QBIT] bluray copy: failed source=%s dest=%s exit=%s stdout=%s stderr=%s",
+                source_dir, dest_dir, result.exit_status, result.stdout, result.stderr,
+            )
+            return False
+
+        _LOGGER.debug("[QBIT] bluray copy: copied %s -> %s (exit=%s)", source_dir, dest_dir, result.exit_status)
+        return True
+    except asyncio.TimeoutError:
+        _LOGGER.error(
+            "[QBIT] bluray copy: timed out source=%s — treating as a failure, will retry next pass",
+            source_dir,
+        )
+        return False
+    except (OSError, asyncssh.Error):
+        _LOGGER.exception("[QBIT] bluray copy: SSH error source=%s", source_dir)
+        return False
+
+
 def _unc_host(path: str) -> str:
     if not path.startswith("\\\\"):
         return ""

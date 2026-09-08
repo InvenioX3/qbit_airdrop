@@ -99,6 +99,10 @@ LANGUAGE_CHOICES = [
 # qBittorrent tag used to mark remux outcome
 TAG_REMUXED = "Remuxed"
 
+# qBittorrent tag used to mark a raw Blu-ray disc folder as copied to the
+# Movies location (no remux — the BDMV structure is never touched)
+TAG_BLURAY_COPIED = "Copied"
+
 # Persistent per-torrent record storage
 STORAGE_VERSION = 1
 STORAGE_KEY_TORRENTS_FMT = "qbit_airdrop_{}_torrents"

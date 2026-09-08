@@ -164,16 +164,46 @@ async def search(
         attrs = candidate.get("attributes") or {}
         feature = attrs.get("feature_details") or {}
         candidate_title = feature.get("title") or feature.get("parent_title") or feature.get("movie_name") or ""
-        if _titles_plausibly_match(query, candidate_title) or _titles_plausibly_match(query, feature.get("parent_title")):
-            _LOGGER.warning(
-                "[QBIT] opensubtitles: matched query=%r against candidate_title=%r attributes=%s",
-                query, candidate_title, attrs,
-            )
-            return attrs
-        _LOGGER.warning(
-            "[QBIT] opensubtitles: rejected candidate — query=%r does not match candidate_title=%r (subtitle_id=%s)",
-            query, candidate_title, attrs.get("subtitle_id"),
+        title_ok = (
+            _titles_plausibly_match(query, candidate_title)
+            or _titles_plausibly_match(query, feature.get("parent_title"))
         )
+        if not title_ok:
+            _LOGGER.warning(
+                "[QBIT] opensubtitles: rejected candidate — query=%r does not match candidate_title=%r (subtitle_id=%s)",
+                query, candidate_title, attrs.get("subtitle_id"),
+            )
+            continue
+
+        # feature_details is OpenSubtitles' own catalog LINK for this
+        # subtitle, and confirmed live (2026-09-06) that link can itself be
+        # wrong: a Spanish-language episode ("La coleccionista" S01E04, "The
+        # Lantern") was mis-associated with a "Lanterns" S01E04 parent
+        # feature, passing the title_ok check above even though the actual
+        # subtitle has nothing to do with that show (its own upload_date
+        # even predates the real episode's air date). The release/file name
+        # is the uploaded file's own identity, independent of that catalog
+        # link, so it has to plausibly reference the query too.
+        files_list = attrs.get("files") or []
+        file_name_text = files_list[0].get("file_name") if files_list else ""
+        release_ok = (
+            _titles_plausibly_match(query, attrs.get("release"))
+            or _titles_plausibly_match(query, file_name_text)
+        )
+        if not release_ok:
+            _LOGGER.warning(
+                "[QBIT] opensubtitles: rejected candidate — query=%r matched the catalog title but not the "
+                "actual release/file name (release=%r file_name=%r) — likely mislinked on OpenSubtitles' own "
+                "side, subtitle_id=%s",
+                query, attrs.get("release"), file_name_text, attrs.get("subtitle_id"),
+            )
+            continue
+
+        _LOGGER.warning(
+            "[QBIT] opensubtitles: matched query=%r against candidate_title=%r attributes=%s",
+            query, candidate_title, attrs,
+        )
+        return attrs
 
     _LOGGER.warning(
         "[QBIT] opensubtitles: none of %d result(s) had a title matching query=%r — treating as not found",

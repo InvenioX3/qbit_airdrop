@@ -40,6 +40,7 @@ from .const import (
     DEFAULT_MKVMERGE_HOST_OS,
     LANGUAGE_CHOICES,
     TAG_REMUXED,
+    TAG_BLURAY_COPIED,
 )
 from .store import TorrentStore
 from .util import (
@@ -569,9 +570,10 @@ async def _process_queue_item(session, base, torrent_hash, meta, index) -> tuple
     simply overwrites the earlier one's output once the remux pass reaches
     the shared final destination, which is the desired behavior.
 
-    Returns (done, needs_remux); needs_remux is False for an unrecognized
-    token type or a Blu-ray disc structure, where there's nothing for a
-    later remux pass to do."""
+    Returns (done, next_stage); next_stage is None for an unrecognized token
+    type (nothing for a later pass to do), "awaiting_bluray_copy" for a raw
+    Blu-ray disc structure (skips rename/remux — copied wholesale to the
+    Movies location once complete instead), or "awaiting_remux" otherwise."""
     token_type = meta["token_type"]
     category = meta["category"]
     season = meta["season"]
@@ -597,14 +599,16 @@ async def _process_queue_item(session, base, torrent_hash, meta, index) -> tuple
         # discs vary too much to classify without running the actual index
         # through mkvmerge, which isn't possible until the whole thing has
         # downloaded. Treated as a single opaque unit: keep every file,
-        # rename nothing, and skip remux entirely — left for manual review.
+        # rename nothing, skip remux entirely, and copy the whole folder to
+        # the Movies location once complete instead (_run_bluray_copy_pass).
         ok = await _apply_file_priorities(session, base, torrent_hash, files, {f["id"] for f in files})
         ok &= await _start_torrent(session, base, torrent_hash)
         _LOGGER.warning(
-            "[QBIT] hash=%s is a Blu-ray disc structure — keeping all files untouched, skipping rename/remux",
+            "[QBIT] hash=%s is a Blu-ray disc structure — keeping all files untouched, "
+            "will copy to Movies location once complete",
             torrent_hash,
         )
-        return ok, False
+        return ok, "awaiting_bluray_copy"
 
     ok = True
 
@@ -693,10 +697,10 @@ async def _process_queue_item(session, base, torrent_hash, meta, index) -> tuple
             "[QBIT] unrecognized token_type=%s hash=%s — skipping rename pipeline",
             token_type, torrent_hash,
         )
-        return True, False
+        return True, None
 
     ok &= await _start_torrent(session, base, torrent_hash)
-    return ok, True
+    return ok, "awaiting_remux"
 
 
 _COMPLETE_STATES = {"uploading", "stalledup", "forcedup", "pausedup", "queuedup", "checkingup"}
@@ -1020,6 +1024,142 @@ async def _run_remux_pass(hass, entry, session, base, store) -> None:
         await store.async_save()
 
 
+async def _run_bluray_copy_pass(hass, entry, session, base, store) -> None:
+    """Raw Blu-ray disc torrents (awaiting_bluray_copy) skip renaming and
+    remuxing entirely — the whole folder is left exactly as the torrent
+    shipped it and copied wholesale to the Movies location once complete,
+    under a folder named after the parsed clean title."""
+    pending_copy = {h: rec for h, rec in store.torrents.items() if rec.get("stage") == "awaiting_bluray_copy"}
+    if not pending_copy:
+        return
+
+    ssh_host = _resolve_ssh_host(entry)
+    ssh_username = _resolve_ssh_username(entry)
+    if not (ssh_host and ssh_username):
+        _LOGGER.warning(
+            "[QBIT] bluray copy pass: SSH not fully configured (host=%r user=%r) — "
+            "%d torrent(s) waiting, none will be processed until both are set",
+            ssh_host, ssh_username, len(pending_copy),
+        )
+        return
+
+    movie_path = _resolve_movie_path(entry)
+    if not movie_path:
+        _LOGGER.warning(
+            "[QBIT] bluray copy pass: Movies save path isn't configured — %d torrent(s) waiting",
+            len(pending_copy),
+        )
+        return
+
+    nas_username = _resolve_nas_username(entry)
+    nas_password = _resolve_nas_password(entry)
+    is_windows = _resolve_is_windows(entry)
+    sep = "\\" if is_windows else "/"
+
+    try:
+        async with session.get(
+            f"{base}/api/v2/torrents/info",
+            params={"filter": "all"},
+            timeout=10,
+        ) as resp:
+            if resp.status != 200:
+                _LOGGER.warning("[QBIT] bluray copy pass: torrent list fetch status=%s", resp.status)
+                return
+            live = await resp.json(content_type=None)
+    except Exception:
+        _LOGGER.exception("[QBIT] bluray copy pass: torrent list fetch failed")
+        return
+
+    if not isinstance(live, list):
+        return
+
+    live_by_hash = {str(t.get("hash") or "").lower(): t for t in live}
+    ssh_port = _resolve_ssh_port(entry)
+    private_key, _public_key = await remux.get_or_create_keypair(hass, entry.entry_id)
+
+    changed = False
+
+    for torrent_hash, rec in pending_copy.items():
+        t = live_by_hash.get(torrent_hash)
+        if not t:
+            _LOGGER.warning(
+                "[QBIT] bluray copy pass: hash=%s no longer in qBittorrent, dropping from tracking",
+                torrent_hash,
+            )
+            store.torrents.pop(torrent_hash, None)
+            changed = True
+            continue
+
+        state = str(t.get("state") or "").lower()
+        if state not in _COMPLETE_STATES:
+            _LOGGER.debug("[QBIT] bluray copy pass: hash=%s not complete yet (state=%s)", torrent_hash, state)
+            continue
+
+        tag_set = {tg.strip() for tg in str(t.get("tags") or "").split(",") if tg.strip()}
+        if TAG_BLURAY_COPIED in tag_set:
+            _LOGGER.warning("[QBIT] bluray copy pass: hash=%s already tagged %s, skipping", torrent_hash, tag_set)
+            continue
+
+        index = await _fetch_index(session, base, torrent_hash)
+        if not index:
+            _LOGGER.warning("[QBIT] bluray copy pass: hash=%s file index fetch failed", torrent_hash)
+            continue
+
+        root_folder = _root_folder(index["folders"])
+        if not root_folder:
+            _LOGGER.warning("[QBIT] bluray copy pass: hash=%s has no root folder to copy — skipping", torrent_hash)
+            continue
+
+        save_path = str(t.get("save_path") or "").rstrip("\\/")
+        source_dir = f"{save_path}{sep}{root_folder}"
+        dest_name = (rec.get("clean_title") or rec.get("rename_name") or root_folder).strip()
+        dest_dir = _build_location(movie_path, dest_name, is_windows=is_windows).rstrip(sep)
+
+        _LOGGER.warning(
+            "[QBIT] bluray copy pass: starting hash=%s source=%s dest=%s",
+            torrent_hash, source_dir, dest_dir,
+        )
+
+        conn = None
+        try:
+            conn = await remux.open_connection(ssh_host, ssh_port, ssh_username, private_key)
+            if conn is None:
+                _LOGGER.warning(
+                    "[QBIT] bluray copy pass: hash=%s could not establish SSH connection, will retry next pass",
+                    torrent_hash,
+                )
+                continue
+
+            ok = await remux.copy_bluray_folder(
+                conn, source_dir, dest_dir, nas_username, nas_password, is_windows,
+            )
+            if ok:
+                await _add_tags(session, base, torrent_hash, TAG_BLURAY_COPIED)
+                _LOGGER.warning(
+                    "[QBIT] bluray copy pass: hash=%s copied successfully, tagged %r",
+                    torrent_hash, TAG_BLURAY_COPIED,
+                )
+                store.torrents.pop(torrent_hash, None)
+                changed = True
+            else:
+                _LOGGER.warning(
+                    "[QBIT] bluray copy pass: hash=%s copy FAILED — will retry next pass",
+                    torrent_hash,
+                )
+        except Exception:
+            _LOGGER.exception(
+                "[QBIT] bluray copy pass: unexpected error processing hash=%s — moving on to next torrent",
+                torrent_hash,
+            )
+            continue
+        finally:
+            if conn is not None:
+                await remux.close_connection(conn, ssh_host)
+
+    if changed:
+        await store.async_save()
+
+
 async def async_setup(
     hass: HomeAssistant,
     config,
@@ -1278,7 +1418,7 @@ async def async_setup_entry(
                 continue
 
             try:
-                done, needs_remux = await _process_queue_item(
+                done, next_stage = await _process_queue_item(
                     session, base, torrent_hash, meta, index,
                 )
             except Exception:
@@ -1289,15 +1429,15 @@ async def async_setup_entry(
                 continue
 
             if done:
-                if needs_remux:
-                    meta["stage"] = "awaiting_remux"
+                if next_stage:
+                    meta["stage"] = next_stage
                     _LOGGER.warning(
-                        "[QBIT] rename/setLocation complete hash=%s category=%r — now awaiting remux",
-                        torrent_hash, meta.get("category"),
+                        "[QBIT] rename/setLocation complete hash=%s category=%r — now %s",
+                        torrent_hash, meta.get("category"), next_stage,
                     )
                 else:
                     _LOGGER.warning(
-                        "[QBIT] hash=%s done, no remux needed (unrecognized token type or Blu-ray disc) — dropped from tracking",
+                        "[QBIT] hash=%s done, no remux needed (unrecognized token type) — dropped from tracking",
                         torrent_hash,
                     )
                     store.torrents.pop(torrent_hash, None)
@@ -1311,6 +1451,7 @@ async def async_setup_entry(
             await store.async_save()
 
         await _run_remux_pass(hass, entry, session, base, store)
+        await _run_bluray_copy_pass(hass, entry, session, base, store)
 
     unsub = async_track_time_interval(hass, _poll_queue, _POLL_INTERVAL)
     hass.data[DOMAIN][entry.entry_id]["unsub_poll"] = unsub
