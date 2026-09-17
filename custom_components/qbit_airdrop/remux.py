@@ -77,7 +77,16 @@ def _track_lang(track: dict) -> str | None:
     props = track.get("properties") or {}
     lang_ietf = str(props.get("language_ietf") or "").strip().lower()
     if lang_ietf:
-        return lang_ietf
+        # IETF/BCP-47 tags can carry a region/script/variant subtag (e.g.
+        # "en-US", "pt-BR") that our configured codes never include — the
+        # primary language subtag always comes first, so only that part is
+        # meaningful for matching against retain-language config. Confirmed
+        # live: an English track reported language_ietf="en-US", which
+        # compared unequal to configured "en"/"eng", emptied
+        # retained_audio_ids, and fell through to "nothing matched, leave
+        # every audio track untouched" — silently retaining an unrelated
+        # Italian track (and any other) right along with it.
+        return lang_ietf.split("-", 1)[0]
     lang = str(props.get("language") or "").strip().lower()
     return lang or None
 
